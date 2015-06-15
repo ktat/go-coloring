@@ -22,7 +22,10 @@ func usage () {
         -c regexp ... to be cyan
         -p regexp ... to be purple
         -w regexp ... to be white
-        -k regexp ... to be black`)
+        -k regexp ... to be black
+        -m ... multiline
+        -i ... case insensitive
+        -h ... help`)
         os.Exit(1)
 }
 
@@ -62,7 +65,9 @@ func parseOptions () (string, string) {
                 c int
                 isDebug bool
         )
-        regexpFlg := "(?s)"
+        regexpFlg  := "";
+        regexpFlgs := make(map[string]bool)
+        regexpFlgs["s"] = true
 
         colorMap := map[string]string {
                 "r" : "red",
@@ -75,7 +80,7 @@ func parseOptions () (string, string) {
                 "w" : "white",
         }
 
-        options := "mdhf:"
+        options := "imdhf:"
         colorOptions := make([]string, 0)
         colorHelp    := make([]string, 0)
         for k := range colorMap {
@@ -96,7 +101,10 @@ func parseOptions () (string, string) {
                 case 'd':
                         isDebug = true
                 case 'm':
-                        regexpFlg = "(?m)"
+                        regexpFlgs["m"] = true
+                        delete(regexpFlgs, "s")
+                case 'i':
+                        regexpFlgs["i"] = true
                 default:
                         if color, ok := colorMap[string(c)]; ok {
                                 replace = append(replace, fmt.Sprintf("(?P<%s>%s)",  color, OptArg))
@@ -112,6 +120,12 @@ func parseOptions () (string, string) {
                 os.Exit(1)
         }
 
+        for k,v := range regexpFlgs {
+                if v {
+                        regexpFlg += k
+                }
+        }
+        regexpFlg = "(?" + regexpFlg + ")"
 
         pattern := regexpFlg + strings.Join(replace, "|")
         if isDebug {
