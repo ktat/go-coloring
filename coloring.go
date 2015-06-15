@@ -52,6 +52,7 @@ func main () {
         }
 
         fmt.Println(colorling(re, string(whole)))
+        os.Exit(0)
 }
 
 func parseOptions () (string, string) {
@@ -59,44 +60,63 @@ func parseOptions () (string, string) {
         var (
                 fileName string
                 c int
+                isDebug bool
         )
+        regexpFlg := "(?s)"
+
+        colorMap := map[string]string {
+                "r" : "red",
+                "g" : "green",
+                "b" : "blue",
+                "y" : "yellow",
+                "p" : "pink",
+                "c" : "cyan",
+                "k" : "black",
+                "w" : "white",
+        }
+
+        options := "mdhf:"
+        colorOptions := make([]string, 0)
+        colorHelp    := make([]string, 0)
+        for k := range colorMap {
+                colorOptions = append(colorOptions, k)
+                colorHelp    = append(colorHelp, "-" + k)
+        }
 
         for {
-                if c = Getopt("r:g:b:y:p:k:c:w:f:h"); c == EOF {
+                if c = Getopt(options + strings.Join(colorOptions, ":") + ":"); c == EOF {
                         break
                 }
+
                 switch c {
-                case 'r':
-                        replace = append(replace, "(?P<red>" + OptArg + ")")
-                case 'g':
-                        replace = append(replace, "(?P<green>" + OptArg + ")")
-                case 'b':
-                        replace = append(replace, "(?P<blue>" + OptArg + ")")
-                case 'y':
-                        replace = append(replace, "(?P<yellow>" + OptArg + ")")
-                case 'p':
-                        replace = append(replace, "(?P<purple>" + OptArg + ")")
-                case 'c':
-                        replace = append(replace, "(?P<cyan>" + OptArg + ")")
-                case 'k':
-                        replace = append(replace, "(?P<black>" + OptArg + ")")
-                case 'w':
-                        replace = append(replace, "(?P<white>" + OptArg + ")")
                 case 'f':
                         fileName = OptArg
                 case 'h':
                         usage()
-                        os.Exit(1)
+                case 'd':
+                        isDebug = true
+                case 'm':
+                        regexpFlg = "(?m)"
+                default:
+                        if color, ok := colorMap[string(c)]; ok {
+                                replace = append(replace, fmt.Sprintf("(?P<%s>%s)",  color, OptArg))
+                        } else {
+                                os.Exit(1)
+                        }
                 }
         }
         OptErr = 0
 
         if len(replace) == 0 {
-                println("any of -r, -g, -b, -y, -w, -c, -k or -p are required.")
+                println("any of " + strings.Join(colorHelp, ", ") + " is required.")
                 os.Exit(1)
         }
 
-        pattern := "(?s)" + strings.Join(replace, "|")
+
+        pattern := regexpFlg + strings.Join(replace, "|")
+        if isDebug {
+                fmt.Println("regexp: " + pattern)
+        }
 
         return pattern, fileName
 }
@@ -113,7 +133,7 @@ func colorling (re *regexp.Regexp, lines string) string {
                 "purple":  func (s string) string {return string(gocolor.String(s).Purple())},
         }
 
-        // should improved
+        // should be improved
         lines = re.ReplaceAllStringFunc(lines, func (s string) string {
                 result := make(map[string]string)
                 match  := re.FindStringSubmatch(s)
