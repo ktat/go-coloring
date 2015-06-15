@@ -38,7 +38,7 @@ func main () {
                 ioerr error
         )
 
-        if len(fileName) == 0 {
+        if fileName == "" {
                 whole,ioerr = ioutil.ReadAll(os.Stdin)
         } else {
                 whole,ioerr = ioutil.ReadFile(fileName)
