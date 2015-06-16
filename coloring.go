@@ -1,20 +1,24 @@
 package main
 
 import (
-        "fmt"
-        "os"
-        "io/ioutil"
-        "regexp"
-        "strings"
-        "log"
-        . "github.com/mattn/go-getopt"
-        "github.com/fuzzy/gocolor"
+	"fmt"
+	"github.com/fuzzy/gocolor"
+	. "github.com/mattn/go-getopt"
+	"io/ioutil"
+	"log"
+	"os"
+	"regexp"
+	"strings"
 )
 
-func usage () {
-        fmt.Println(`usage: coloring [-f file|-[rgbycpwk] regexp|-h]
+var isDebug bool
 
-        -f file_name ... read from file instead of stdin
+func usage() {
+	const v = `
+usage: coloring [-f file|-[rgbycpwk] regexp|-n pattern|-R dir|-h]
+
+        -f file_name/pattern ... read from file instead of stdin
+        -R dir  ... recursively read directory
         -r regexp ... to be red
         -g regexp ... to be green
         -b regexp ... to be blue
@@ -23,146 +27,199 @@ func usage () {
         -p regexp ... to be purple
         -w regexp ... to be white
         -k regexp ... to be black
-        -m ... multiline
-        -i ... case insensitive
-        -h ... help`)
-        os.Exit(1)
+        -m ... regexp for multiline
+        -i ... regexp is case insensitive
+        -h ... help
+`
+	os.Stderr.Write([]byte(v))
+	os.Exit(1)
 }
 
-func main () {
-
-        pattern, fileName := parseOptions()
-
-        var (
-                whole []byte
-                ioerr error
-        )
-
-        if fileName == "" {
-                whole,ioerr = ioutil.ReadAll(os.Stdin)
-        } else {
-                whole,ioerr = ioutil.ReadFile(fileName)
-        }
-
-        if ioerr != nil {
-                log.Fatal(ioerr)
-        }
-
-        re,regexpErr := regexp.Compile(pattern)
-
-        if regexpErr != nil {
-                log.Fatal(regexpErr)
-        }
-
-        fmt.Println(colorling(re, string(whole)))
-        os.Exit(0)
+func errCheck(e error) {
+	if e != nil {
+		log.Fatal(e)
+	}
 }
 
-func parseOptions () (string, string) {
-        replace := make([]string, 0)
-        var (
-                fileName string
-                c int
-                isDebug bool
-        )
-        regexpFlg  := "";
-        regexpFlgs := make(map[string]bool)
-        regexpFlgs["s"] = true
+func main() {
 
-        colorMap := map[string]string {
-                "r" : "red",
-                "g" : "green",
-                "b" : "blue",
-                "y" : "yellow",
-                "p" : "pink",
-                "c" : "cyan",
-                "k" : "black",
-                "w" : "white",
-        }
+	pattern, fileName, dirName := parseOptions()
 
-        options := "imdhf:"
-        colorOptions := make([]string, 0)
-        colorHelp    := make([]string, 0)
-        for k := range colorMap {
-                colorOptions = append(colorOptions, k)
-                colorHelp    = append(colorHelp, "-" + k)
-        }
+	re, regexpErr := regexp.Compile(pattern)
+	errCheck(regexpErr)
 
-        for {
-                if c = Getopt(options + strings.Join(colorOptions, ":") + ":"); c == EOF {
-                        break
-                }
+	var (
+		whole []byte
+		ioerr error
+	)
 
-                switch c {
-                case 'f':
-                        fileName = OptArg
-                case 'h':
-                        usage()
-                case 'd':
-                        isDebug = true
-                case 'm':
-                        regexpFlgs["m"] = true
-                        delete(regexpFlgs, "s")
-                case 'i':
-                        regexpFlgs["i"] = true
-                default:
-                        if color, ok := colorMap[string(c)]; ok {
-                                replace = append(replace, fmt.Sprintf("(?P<%s>%s)",  color, OptArg))
-                        } else {
-                                os.Exit(1)
-                        }
-                }
-        }
-        OptErr = 0
+	if dirName == "" && fileName == "" {
+		// read from STDIN
+		whole, ioerr = ioutil.ReadAll(os.Stdin)
+		errCheck(ioerr)
+		fmt.Println(coloring(re, string(whole)))
+	} else {
+		var files = make([]string, 0)
+		var isRecursve bool = false
+		if dirName == "" {
+			dirName = "."
+		} else {
+			isRecursve = true
+		}
+		if fileName == "" {
+			fileName = "*.*"
+		}
+		seekDir(&files, dirName, fileName, isRecursve)
+		if isDebug {
+			fmt.Println(files)
+			fmt.Println(isRecursve)
+		}
+		for i := 0; i < len(files); i++ {
+			whole, ioerr = ioutil.ReadFile(files[i])
+			errCheck(ioerr)
+			fmt.Println(coloring(re, string(whole)))
+		}
+	}
 
-        if len(replace) == 0 {
-                println("any of " + strings.Join(colorHelp, ", ") + " is required.")
-                os.Exit(1)
-        }
-
-        for k,v := range regexpFlgs {
-                if v {
-                        regexpFlg += k
-                }
-        }
-        regexpFlg = "(?" + regexpFlg + ")"
-
-        pattern := regexpFlg + strings.Join(replace, "|")
-        if isDebug {
-                fmt.Println("regexp: " + pattern)
-        }
-
-        return pattern, fileName
+	os.Exit(0)
 }
 
-func colorling (re *regexp.Regexp, lines string) string {
-        colorFunc := map [string]interface{} {
-                "red"   :  func (s string) string {return string(gocolor.String(s).Red())},
-                "green" :  func (s string) string {return string(gocolor.String(s).Green())},
-                "blue"  :  func (s string) string {return string(gocolor.String(s).Blue())},
-                "yellow":  func (s string) string {return string(gocolor.String(s).Yellow())},
-                "white" :  func (s string) string {return string(gocolor.String(s).White())},
-                "cyan"  :  func (s string) string {return string(gocolor.String(s).Cyan())},
-                "black" :  func (s string) string {return string(gocolor.String(s).Black())},
-                "purple":  func (s string) string {return string(gocolor.String(s).Purple())},
-        }
+func seekDir(files *[]string, dirName string, fileName string, isRecursive bool) {
+	fileInfo, ioerr := ioutil.ReadDir(dirName)
+	errCheck(ioerr)
+	for i := 0; i < len(fileInfo); i++ {
+		fullName := dirName + "/" + fileInfo[i].Name()
+		if fileInfo[i].IsDir() == false {
+			if fileName == "" || checkFileName(fullName, fileName) {
+				*files = append(*files, fullName)
+			}
+		} else if isRecursive && fileInfo[i].Name()[0] != '.' {
+			println("seek dir")
+			seekDir(files, dirName+"/"+fileInfo[i].Name(), fileName, true)
+		}
+	}
+}
 
-        // should be improved
-        lines = re.ReplaceAllStringFunc(lines, func (s string) string {
-                result := make(map[string]string)
-                match  := re.FindStringSubmatch(s)
+func checkFileName(targetFile string, fileName string) bool {
+	pattern := fileName
+	pattern = strings.Replace(pattern, ".", "\\.", -1)
+	pattern = strings.Replace(pattern, "*", ".*", -1)
+	matched, err := regexp.MatchString("/"+pattern+"$", targetFile)
+	if isDebug {
+		println(targetFile, fileName, pattern, matched)
+	}
+	if err == nil && matched {
+		return true
+	}
+	return false
+}
 
-                for i, name := range re.SubexpNames() {
-                        result[name] = match[i]
-                }
+func parseOptions() (pattern string, fileName string, dirName string) {
+	replace := make([]string, 0)
+	var (
+		c int
+	)
+	regexpFlg := ""
+	regexpFlgs := make(map[byte]bool)
+	regexpFlgs['s'] = true
 
-                for k := range colorFunc {
-                        if len(result[k]) > 0 {
-                                return colorFunc[k].(func (string) string)(s)
-                        }
-                }
-                // never come here
-                return s;
-        })
-        return string(lines)
+	colorMap := map[byte]string{
+		'r': "red",
+		'g': "green",
+		'b': "blue",
+		'y': "yellow",
+		'p': "pink",
+		'c': "cyan",
+		'k': "black",
+		'w': "white",
+	}
+
+	options := "imdhR:f:n:"
+	colorOptions := make([]string, 0)
+	colorHelp := make([]string, 0)
+	for k := range colorMap {
+		colorOptions = append(colorOptions, string(k))
+		colorHelp = append(colorHelp, "-"+string(k))
+	}
+
+	for {
+		if c = Getopt(options + strings.Join(colorOptions, ":") + ":"); c == EOF {
+			break
+		}
+
+		switch c {
+		case 'h':
+			usage()
+		case 'f':
+			fileName = OptArg
+		case 'R':
+			println(OptArg)
+			dirName = OptArg
+		case 'd':
+			isDebug = true
+		case 'm':
+			regexpFlgs['m'] = true
+			delete(regexpFlgs, 's')
+		case 'i':
+			regexpFlgs['i'] = true
+		default:
+			if color, ok := colorMap[byte(c)]; ok {
+				replace = append(replace, fmt.Sprintf("(?P<%s>%s)", color, OptArg))
+			} else {
+				os.Exit(1)
+			}
+		}
+	}
+	OptErr = 0
+
+	if len(replace) == 0 {
+		println("any of " + strings.Join(colorHelp, ", ") + " is required.")
+		os.Exit(1)
+	}
+
+	for k, v := range regexpFlgs {
+		if v {
+			regexpFlg += string(k)
+		}
+	}
+	regexpFlg = "(?" + regexpFlg + ")"
+
+	pattern = regexpFlg + strings.Join(replace, "|")
+	if isDebug {
+		fmt.Println("regexp: " + pattern)
+		fmt.Println("dirName: " + dirName)
+	}
+	return
+}
+
+func coloring(re *regexp.Regexp, lines string) string {
+	colorFunc := map[string]interface{}{
+		"red":    func(s string) string { return string(gocolor.String(s).Red()) },
+		"green":  func(s string) string { return string(gocolor.String(s).Green()) },
+		"blue":   func(s string) string { return string(gocolor.String(s).Blue()) },
+		"yellow": func(s string) string { return string(gocolor.String(s).Yellow()) },
+		"white":  func(s string) string { return string(gocolor.String(s).White()) },
+		"cyan":   func(s string) string { return string(gocolor.String(s).Cyan()) },
+		"black":  func(s string) string { return string(gocolor.String(s).Black()) },
+		"purple": func(s string) string { return string(gocolor.String(s).Purple()) },
+	}
+
+	// should be improved
+	lines = re.ReplaceAllStringFunc(lines, func(s string) string {
+		result := make(map[string]string)
+		match := re.FindStringSubmatch(s)
+
+		for i, name := range re.SubexpNames() {
+			result[name] = match[i]
+		}
+
+		for k := range colorFunc {
+			if len(result[k]) > 0 {
+				return colorFunc[k].(func(string) string)(s)
+			}
+		}
+		// never come here
+		return s
+	})
+	return string(lines)
 }
