@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/fuzzy/gocolor"
+	"github.com/ktat/go-colorling/coloring"
 	. "github.com/mattn/go-getopt"
 	"io/ioutil"
 	"log"
@@ -12,6 +13,7 @@ import (
 )
 
 var isDebug bool
+var usePager bool
 
 func usage() {
 	const v = `
@@ -29,6 +31,7 @@ usage: coloring [-f file|-[rgbycpwk] regexp|-n pattern|-R dir|-h]
         -k regexp ... to be black
         -m ... regexp for multiline
         -i ... regexp is case insensitive
+        -P ... use builtin pager
         -h ... help
 `
 	os.Stderr.Write([]byte(v))
@@ -57,7 +60,20 @@ func main() {
 		// read from STDIN
 		whole, ioerr = ioutil.ReadAll(os.Stdin)
 		errCheck(ioerr)
-		fmt.Println(coloring(re, string(whole)))
+		if usePager {
+			for {
+				var p pager.Pager
+				p.Init()
+				p.Str = coloring(re, string(whole))
+				p.Draw()
+				if p.PollEvent() == false {
+					p.Close()
+					break
+				}
+			}
+		} else {
+			fmt.Println(coloring(re, string(whole)))
+		}
 	} else {
 		var files = make([]string, 0)
 		var isRecursve bool = false
@@ -74,17 +90,42 @@ func main() {
 			fmt.Println(files)
 			fmt.Println(isRecursve)
 		}
+		var p pager.Pager
+		if usePager {
+			p.Files = files
+			p.Init()
+		}
+
 		for i := 0; i < len(files); i++ {
 			whole, ioerr = ioutil.ReadFile(files[i])
 			errCheck(ioerr)
-			fmt.Println(coloring(re, string(whole)))
+			colored := coloring(re, string(whole))
+
+			if usePager {
+				p.Index = i
+				p.Str = colored
+				p.File = files[i]
+				p.Draw()
+				if p.PollEvent() {
+					i = p.Index
+				} else {
+					break
+				}
+			} else {
+				fmt.Println(colored)
+			}
+		}
+		if usePager {
+			p.Close()
 		}
 	}
-
 	os.Exit(0)
 }
 
 func seekDir(files *[]string, dirName string, fileName string, isRecursive bool) {
+	if isDebug {
+		println(fileName)
+	}
 	fileInfo, ioerr := ioutil.ReadDir(dirName)
 	errCheck(ioerr)
 	for i := 0; i < len(fileInfo); i++ {
@@ -134,7 +175,7 @@ func parseOptions() (pattern string, fileName string, dirName string) {
 		'w': "white",
 	}
 
-	options := "imdhR:f:n:"
+	options := "imdhPR:f:n:"
 	colorOptions := make([]string, 0)
 	colorHelp := make([]string, 0)
 	for k := range colorMap {
@@ -153,8 +194,9 @@ func parseOptions() (pattern string, fileName string, dirName string) {
 		case 'f':
 			fileName = OptArg
 		case 'R':
-			println(OptArg)
 			dirName = OptArg
+		case 'P':
+			usePager = true
 		case 'd':
 			isDebug = true
 		case 'm':
