@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/fuzzy/gocolor"
-	"github.com/ktat/go-colorling/coloring"
+	"github.com/ktat/go-coloring/coloring"
 	. "github.com/mattn/go-getopt"
 	"io/ioutil"
 	"log"
