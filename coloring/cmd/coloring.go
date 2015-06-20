@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/fuzzy/gocolor"
+	"github.com/ktat/go-coloring/coloring"
 	"github.com/ktat/go-pager"
 	. "github.com/mattn/go-getopt"
 	"io/ioutil"
@@ -64,14 +64,14 @@ func main() {
 			for {
 				var p pager.Pager
 				p.Init()
-				p.SetContent(coloring(re, string(whole)))
+				p.SetContent(coloringText(re, string(whole)))
 				if p.PollEvent() == false {
 					p.Close()
 					break
 				}
 			}
 		} else {
-			fmt.Println(coloring(re, string(whole)))
+			fmt.Println(coloringText(re, string(whole)))
 		}
 	} else {
 		var files = make([]string, 0)
@@ -98,7 +98,7 @@ func main() {
 		for i := 0; i < len(files); i++ {
 			whole, ioerr = ioutil.ReadFile(files[i])
 			errCheck(ioerr)
-			colored := coloring(re, string(whole))
+			colored := coloringText(re, string(whole))
 
 			if usePager {
 				p.Index = i
@@ -232,16 +232,16 @@ func parseOptions() (pattern string, fileName string, dirName string) {
 	return
 }
 
-func coloring(re *regexp.Regexp, lines string) string {
+func coloringText(re *regexp.Regexp, lines string) string {
 	colorFunc := map[string]interface{}{
-		"red":    func(s string) string { return string(gocolor.String(s).Red()) },
-		"green":  func(s string) string { return string(gocolor.String(s).Green()) },
-		"blue":   func(s string) string { return string(gocolor.String(s).Blue()) },
-		"yellow": func(s string) string { return string(gocolor.String(s).Yellow()) },
-		"white":  func(s string) string { return string(gocolor.String(s).White()) },
-		"cyan":   func(s string) string { return string(gocolor.String(s).Cyan()) },
-		"black":  func(s string) string { return string(gocolor.String(s).Black()) },
-		"purple": func(s string) string { return string(gocolor.String(s).Purple()) },
+		"red":    func(s coloring.String) string { return s.Red() },
+		"green":  func(s coloring.String) string { return s.Green() },
+		"blue":   func(s coloring.String) string { return s.Blue() },
+		"yellow": func(s coloring.String) string { return s.Yellow() },
+		"white":  func(s coloring.String) string { return s.White() },
+		"cyan":   func(s coloring.String) string { return s.Cyan() },
+		"black":  func(s coloring.String) string { return s.Black() },
+		"purple": func(s coloring.String) string { return s.Magenta() },
 	}
 
 	// should be improved
@@ -255,7 +255,9 @@ func coloring(re *regexp.Regexp, lines string) string {
 
 		for k := range colorFunc {
 			if len(result[k]) > 0 {
-				return colorFunc[k].(func(string) string)(s)
+				var color coloring.String
+				color.Str = s
+				return colorFunc[k].(func(s coloring.String) string)(color)
 			}
 		}
 		// never come here

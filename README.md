@@ -1,12 +1,14 @@
 # go-coloring
+
 coloring text with regexp
 
 # USAGE
 
 ```
-usage: coloring [-f file|-[rgbycpwk] regexp|-h]
+usage: coloring [-f file|-[rgbycpwk] regexp|-n pattern|-R dir|-h]
 
-        -f file_name ... read from file instead of stdin
+        -f file_name/pattern ... read from file instead of stdin
+        -R dir  ... recursively read directory
         -r regexp ... to be red
         -g regexp ... to be green
         -b regexp ... to be blue
@@ -15,4 +17,16 @@ usage: coloring [-f file|-[rgbycpwk] regexp|-h]
         -p regexp ... to be purple
         -w regexp ... to be white
         -k regexp ... to be black
+        -m ... regexp for multiline
+        -i ... regexp is case insensitive
+        -P ... use builtin pager
+        -h ... help
 ```
+
+# License
+
+MIT
+
+# Author
+
+Atsushi Kato (ktat)
