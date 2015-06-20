@@ -65,7 +65,6 @@ func main() {
 				var p pager.Pager
 				p.Init()
 				p.SetContent(coloring(re, string(whole)))
-				p.Draw()
 				if p.PollEvent() == false {
 					p.Close()
 					break
@@ -105,7 +104,6 @@ func main() {
 				p.Index = i
 				p.SetContent(colored)
 				p.File = files[i]
-				p.Draw()
 				if p.PollEvent() {
 					i = p.Index
 				} else {
