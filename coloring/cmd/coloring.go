@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"path/filepath"
 )
 
 var isDebug bool
@@ -91,8 +92,8 @@ func main() {
 		}
 		var p pager.Pager
 		if usePager {
-			p.Files = files
 			p.Init()
+			p.Files = files
 		}
 
 		for i := 0; i < len(files); i++ {
@@ -127,14 +128,14 @@ func seekDir(files *[]string, dirName string, fileName string, isRecursive bool)
 	fileInfo, ioerr := ioutil.ReadDir(dirName)
 	errCheck(ioerr)
 	for i := 0; i < len(fileInfo); i++ {
-		fullName := dirName + "/" + fileInfo[i].Name()
+		fullName := filepath.Join(dirName, fileInfo[i].Name())
 		if fileInfo[i].IsDir() == false {
 			if fileName == "" || checkFileName(fullName, fileName) {
 				*files = append(*files, fullName)
 			}
 		} else if isRecursive && fileInfo[i].Name()[0] != '.' {
 			println("seek dir")
-			seekDir(files, dirName+"/"+fileInfo[i].Name(), fileName, true)
+			seekDir(files, filepath.Join(dirName,fileInfo[i].Name()), fileName, true)
 		}
 	}
 }
@@ -257,7 +258,7 @@ func coloringText(re *regexp.Regexp, lines string) string {
 			if len(result[k]) > 0 {
 				var color coloring.String
 				color.Str = s
-				return colorFunc[k].(func(s coloring.String) string)(color)
+				return colorFunc[k].(func(coloring.String) string)(color)
 			}
 		}
 		// never come here
