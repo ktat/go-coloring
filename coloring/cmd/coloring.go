@@ -8,9 +8,9 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
-	"path/filepath"
 )
 
 var isDebug bool
@@ -135,7 +135,7 @@ func seekDir(files *[]string, dirName string, fileName string, isRecursive bool)
 			}
 		} else if isRecursive && fileInfo[i].Name()[0] != '.' {
 			println("seek dir")
-			seekDir(files, filepath.Join(dirName,fileInfo[i].Name()), fileName, true)
+			seekDir(files, filepath.Join(dirName, fileInfo[i].Name()), fileName, true)
 		}
 	}
 }
@@ -234,7 +234,7 @@ func parseOptions() (pattern string, fileName string, dirName string) {
 }
 
 func coloringText(re *regexp.Regexp, lines string) string {
-	colorFunc := map[string]interface{}{
+	colorFunc := map[string]func(s coloring.String) string{
 		"red":    func(s coloring.String) string { return s.Red() },
 		"green":  func(s coloring.String) string { return s.Green() },
 		"blue":   func(s coloring.String) string { return s.Blue() },
@@ -258,7 +258,7 @@ func coloringText(re *regexp.Regexp, lines string) string {
 			if len(result[k]) > 0 {
 				var color coloring.String
 				color.Str = s
-				return colorFunc[k].(func(coloring.String) string)(color)
+				return colorFunc[k](color)
 			}
 		}
 		// never come here
