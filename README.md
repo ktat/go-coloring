@@ -5,7 +5,7 @@ coloring text with regexp
 # USAGE
 
 ```
-usage: coloring [-f file|-[rgbycpwk] regexp|-n pattern|-R dir|-h]
+usage: coloring [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
 
         -f file_name/pattern ... read from file instead of stdin
         -R dir  ... recursively read directory

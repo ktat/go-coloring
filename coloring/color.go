@@ -8,7 +8,7 @@ type String struct {
 	Str string
 }
 
-func (s String) String () string{
+func (s String) String() string {
 	return s.Str
 }
 

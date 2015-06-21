@@ -18,7 +18,7 @@ var usePager bool
 
 func usage() {
 	const v = `
-usage: coloring [-f file|-[rgbycpwk] regexp|-n pattern|-R dir|-h]
+usage: coloring [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h] [file ..]
 
         -f file_name/pattern ... read from file instead of stdin
         -R dir  ... recursively read directory
@@ -47,7 +47,7 @@ func errCheck(e error) {
 
 func main() {
 
-	pattern, fileName, dirName := parseOptions()
+	pattern, files, fileName, dirName := parseOptions()
 
 	re, regexpErr := regexp.Compile(pattern)
 	errCheck(regexpErr)
@@ -57,7 +57,7 @@ func main() {
 		ioerr error
 	)
 
-	if dirName == "" && fileName == "" {
+	if dirName == "" && len(files) == 0 && fileName == "" {
 		// read from STDIN
 		whole, ioerr = ioutil.ReadAll(os.Stdin)
 		errCheck(ioerr)
@@ -75,14 +75,13 @@ func main() {
 			fmt.Println(coloringText(re, string(whole)))
 		}
 	} else {
-		var files = make([]string, 0)
 		var isRecursve bool = false
 		if dirName == "" {
 			dirName = "."
 		} else {
 			isRecursve = true
 		}
-		if fileName == "" {
+		if len(files) == 0 && fileName == "" {
 			fileName = "*.*"
 		}
 		seekDir(&files, dirName, fileName, isRecursve)
@@ -144,7 +143,7 @@ func checkFileName(targetFile string, fileName string) bool {
 	pattern := fileName
 	pattern = strings.Replace(pattern, ".", "\\.", -1)
 	pattern = strings.Replace(pattern, "*", ".*", -1)
-	matched, err := regexp.MatchString("/"+pattern+"$", targetFile)
+	matched, err := regexp.MatchString("(^|/)"+pattern+"$", targetFile)
 	if isDebug {
 		println(targetFile, fileName, pattern, matched)
 	}
@@ -154,7 +153,7 @@ func checkFileName(targetFile string, fileName string) bool {
 	return false
 }
 
-func parseOptions() (pattern string, fileName string, dirName string) {
+func parseOptions() (pattern string, files []string, fileName string, dirName string) {
 	replace := make([]string, 0)
 	var (
 		c int
@@ -174,7 +173,7 @@ func parseOptions() (pattern string, fileName string, dirName string) {
 		'w': "white",
 	}
 
-	options := "imdhPR:f:n:"
+	options := "imdhPR:f:"
 	colorOptions := make([]string, 0)
 	colorHelp := make([]string, 0)
 	for k := range colorMap {
@@ -210,6 +209,9 @@ func parseOptions() (pattern string, fileName string, dirName string) {
 				os.Exit(1)
 			}
 		}
+	}
+	for n := OptInd; n < len(os.Args); n++ {
+		files = append(files, os.Args[n])
 	}
 	OptErr = 0
 
