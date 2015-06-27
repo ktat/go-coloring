@@ -167,7 +167,7 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		'g': "green",
 		'b': "blue",
 		'y': "yellow",
-		'p': "pink",
+		'p': "purple",
 		'c': "cyan",
 		'k': "black",
 		'w': "white",
@@ -247,23 +247,47 @@ func coloringText(re *regexp.Regexp, lines string) string {
 		"purple": func(s coloring.String) string { return s.Magenta() },
 	}
 
-	// should be improved
 	lines = re.ReplaceAllStringFunc(lines, func(s string) string {
-		result := make(map[string]string)
-		match := re.FindStringSubmatch(s)
-
+		result := make(map[string][]int)
+		match := re.FindAllStringSubmatchIndex(s, -1)
+		lastName := ""
 		for i, name := range re.SubexpNames() {
-			result[name] = match[i]
+			if i < 1 || match[0][i*2] == -1 {
+				continue
+			}
+			if lastName != "" && name == "" {
+				result[lastName] = append(result[lastName], match[0][i*2], match[0][i*2+1])
+			} else {
+				result[name] = append(result[name], match[0][i*2], match[0][i*2+1])
+				lastName = name
+			}
 		}
 
 		for k := range colorFunc {
-			if len(result[k]) > 0 {
-				var color coloring.String
-				color.Str = s
-				return colorFunc[k](color)
+			newStr := ""
+			if len(result[k]) > 2 { // if parenthese exists in regexp, ignore first match which matches whole string
+				result[k] = result[k][2:]
+			}
+			for i := len(result[k]) - 1; i >= 0; i -= 2 {
+				if result[k][i] > 0 {
+					var matched_index []int
+					matched_index = append(matched_index, result[k][i-1], result[k][i])
+					var color coloring.String
+
+					if matched_index[1] > 0 {
+						color.Str = s[matched_index[0]:matched_index[1]]
+					}
+					if matched_index[0] > 0 {
+						newStr = s[0:matched_index[0]]
+					}
+					newStr += colorFunc[k](color)
+					if matched_index[1] > 0 && matched_index[1] < len(s) {
+						newStr += s[matched_index[1]:len(s)]
+					}
+					s = newStr
+				}
 			}
 		}
-		// never come here
 		return s
 	})
 	return string(lines)
