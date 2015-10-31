@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/ktat/go-coloring/coloring"
 	"github.com/ktat/go-pager"
@@ -20,7 +21,7 @@ func usage() {
 	const v = `
 usage: coloring [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h] [file ..]
 
-        -f file_name/pattern ... read from file instead of stdin
+        -f file_name/pattern/-(stdin) ... read from file. read stdin if '-' is given
         -R dir  ... recursively read directory
         -r regexp ... to be red
         -g regexp ... to be green
@@ -30,7 +31,8 @@ usage: coloring [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h] [file ..]
         -p regexp ... to be purple
         -w regexp ... to be white
         -k regexp ... to be black
-        -m ... regexp for multiline
+        -e regexp ... erase matched string
+        -m ... regexp for multilines
         -i ... regexp is case insensitive
         -P ... use builtin pager
         -h ... help
@@ -45,49 +47,108 @@ func errCheck(e error) {
 	}
 }
 
+func readStdin(in chan string, usePager bool) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for scanner.Scan() {
+		var s = scanner.Text()
+		in <- s
+	}
+
+	if !usePager {
+		close(in)
+	}
+}
+
 func main() {
 
-	pattern, files, fileName, dirName := parseOptions()
+	pattern, files, fileName, dirName, erasePattern := parseOptions()
 
 	re, regexpErr := regexp.Compile(pattern)
 	errCheck(regexpErr)
 
+	reErase, eraseRegexpErr := regexp.Compile(erasePattern)
+	errCheck(eraseRegexpErr)
 	var (
 		whole []byte
 		ioerr error
 	)
+	if dirName == "" && fileName == "" && len(files) == 0 {
+		fmt.Println("-R or -f is requreid")
+		os.Exit(1)
+	} else if fileName == "-" {
+		// read from STDIN with channel
+		stat, _ := os.Stdin.Stat()
 
-	if dirName == "" && len(files) == 0 && fileName == "" {
-		// read from STDIN
-		whole, ioerr = ioutil.ReadAll(os.Stdin)
-		errCheck(ioerr)
 		if usePager {
-			for {
-				var p pager.Pager
-				p.Init()
-				p.SetContent(coloringText(re, string(whole)))
+			if (stat.Mode() & os.ModeCharDevice) != 0 {
+				fmt.Fprintln(os.Stderr, "pager doesn't work without pipe.")
+				os.Exit(1)
+			}
+
+			in := make(chan string)
+			go readStdin(in, usePager)
+
+			var p pager.Pager
+			p.Init()
+
+			pollEnd := make(chan int)
+			go func(in chan string, pe chan int) {
 				if p.PollEvent() == false {
 					p.Close()
+					close(in)
+					pe <- 1
+					return
+				}
+			}(in, pollEnd)
+
+			go func() {
+				for {
+					l, ok := <-in
+					if ok == false {
+						break
+					} else {
+						p.AddContent(coloringText(re, reErase, l+"\n"))
+						p.Draw()
+					}
+
+				}
+			}()
+
+			<-pollEnd
+
+			close(pollEnd)
+			defer p.Close()
+		} else {
+			in := make(chan string)
+			go readStdin(in, usePager)
+
+			for {
+				l, ok := <-in
+				if ok == false {
 					break
+				} else {
+					fmt.Println(coloringText(re, reErase, l))
 				}
 			}
-		} else {
-			fmt.Println(coloringText(re, string(whole)))
 		}
 	} else {
-		var isRecursve bool = false
-		if dirName == "" {
+		// read from file or dir
+		var isRecursive bool = true
+		if len(files) == 0 {
+			if fileName == "" {
+				fileName = "*.*"
+			}
 			dirName = "."
-		} else {
-			isRecursve = true
 		}
-		if len(files) == 0 && fileName == "" {
-			fileName = "*.*"
+		if dirName != "" {
+			seekDir(&files, dirName, fileName, isRecursive)
 		}
-		seekDir(&files, dirName, fileName, isRecursve)
 		if isDebug {
-			fmt.Println(files)
-			fmt.Println(isRecursve)
+			log.Println("filename: " + fileName)
+			log.Println("files:")
+			log.Println(files)
+			log.Println("dirName: " + dirName)
 		}
 		var p pager.Pager
 		if usePager {
@@ -98,7 +159,7 @@ func main() {
 		for i := 0; i < len(files); i++ {
 			whole, ioerr = ioutil.ReadFile(files[i])
 			errCheck(ioerr)
-			colored := coloringText(re, string(whole))
+			colored := coloringText(re, reErase, string(whole))
 
 			if usePager {
 				p.Index = i
@@ -110,7 +171,7 @@ func main() {
 					break
 				}
 			} else {
-				fmt.Println(colored)
+				fmt.Print(colored)
 			}
 		}
 		if usePager {
@@ -122,7 +183,7 @@ func main() {
 
 func seekDir(files *[]string, dirName string, fileName string, isRecursive bool) {
 	if isDebug {
-		println(fileName)
+		log.Println(fileName)
 	}
 	fileInfo, ioerr := ioutil.ReadDir(dirName)
 	errCheck(ioerr)
@@ -130,10 +191,15 @@ func seekDir(files *[]string, dirName string, fileName string, isRecursive bool)
 		fullName := filepath.Join(dirName, fileInfo[i].Name())
 		if fileInfo[i].IsDir() == false {
 			if fileName == "" || checkFileName(fullName, fileName) {
+				if isDebug {
+					log.Println(fullName)
+				}
 				*files = append(*files, fullName)
 			}
 		} else if isRecursive && fileInfo[i].Name()[0] != '.' {
-			println("seek dir")
+			if isDebug {
+				log.Println("seek dir")
+			}
 			seekDir(files, filepath.Join(dirName, fileInfo[i].Name()), fileName, true)
 		}
 	}
@@ -145,7 +211,7 @@ func checkFileName(targetFile string, fileName string) bool {
 	pattern = strings.Replace(pattern, "*", ".*", -1)
 	matched, err := regexp.MatchString("(^|/)"+pattern+"$", targetFile)
 	if isDebug {
-		println(targetFile, fileName, pattern, matched)
+		log.Println(targetFile, fileName, pattern, matched)
 	}
 	if err == nil && matched {
 		return true
@@ -153,7 +219,7 @@ func checkFileName(targetFile string, fileName string) bool {
 	return false
 }
 
-func parseOptions() (pattern string, files []string, fileName string, dirName string) {
+func parseOptions() (pattern string, files []string, fileName string, dirName string, erasePattern string) {
 	replace := make([]string, 0)
 	var (
 		c int
@@ -173,7 +239,7 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		'w': "white",
 	}
 
-	options := "imdhPR:f:"
+	options := "imdhPR:f:e:"
 	colorOptions := make([]string, 0)
 	colorHelp := make([]string, 0)
 	for k := range colorMap {
@@ -185,7 +251,6 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		if c = Getopt(options + strings.Join(colorOptions, ":") + ":"); c == EOF {
 			break
 		}
-
 		switch c {
 		case 'h':
 			usage()
@@ -202,6 +267,8 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 			delete(regexpFlgs, 's')
 		case 'i':
 			regexpFlgs['i'] = true
+		case 'e':
+			erasePattern = OptArg
 		default:
 			if color, ok := colorMap[byte(c)]; ok {
 				replace = append(replace, fmt.Sprintf("(?P<%s>%s)", color, OptArg))
@@ -211,12 +278,15 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		}
 	}
 	for n := OptInd; n < len(os.Args); n++ {
+		if isDebug {
+			log.Println("add file: " + os.Args[n])
+		}
 		files = append(files, os.Args[n])
 	}
 	OptErr = 0
 
 	if len(replace) == 0 {
-		println("any of " + strings.Join(colorHelp, ", ") + " is required.")
+		println("any of " + strings.Join(colorHelp, ", ") + " AND -R or -f is required.")
 		os.Exit(1)
 	}
 
@@ -229,13 +299,14 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 
 	pattern = regexpFlg + strings.Join(replace, "|")
 	if isDebug {
-		fmt.Println("regexp: " + pattern)
-		fmt.Println("dirName: " + dirName)
+		log.Println("regexp: " + pattern)
+		log.Println("dirName: " + dirName)
 	}
 	return
 }
 
-func coloringText(re *regexp.Regexp, lines string) string {
+func coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) string {
+	lines = reErase.ReplaceAllString(lines, "")
 	colorFunc := map[string]func(s coloring.String) string{
 		"red":    func(s coloring.String) string { return s.Red() },
 		"green":  func(s coloring.String) string { return s.Green() },
