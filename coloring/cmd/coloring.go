@@ -2,10 +2,11 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"github.com/ktat/go-coloring/coloring"
 	"github.com/ktat/go-pager"
-	. "github.com/mattn/go-getopt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -16,30 +17,6 @@ import (
 
 var isDebug bool
 var usePager bool
-
-func usage() {
-	const v = `
-usage: coloring [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h] [file ..]
-
-        -f file_name/pattern/-(stdin) ... read from file. read stdin if '-' is given
-        -R dir  ... recursively read directory
-        -r regexp ... to be red
-        -g regexp ... to be green
-        -b regexp ... to be blue
-        -y regexp ... to be yellow
-        -c regexp ... to be cyan
-        -p regexp ... to be purple
-        -w regexp ... to be white
-        -k regexp ... to be black
-        -e regexp ... erase matched string
-        -m ... regexp for multilines
-        -i ... regexp is case insensitive
-        -P ... use builtin pager
-        -h ... help
-`
-	os.Stderr.Write([]byte(v))
-	os.Exit(1)
-}
 
 func errCheck(e error) {
 	if e != nil {
@@ -62,7 +39,7 @@ func readStdin(in chan string, usePager bool) {
 
 func main() {
 
-	pattern, files, fileName, dirName, erasePattern := parseOptions()
+	pattern, files, fileName, dirName, erasePattern, usePager, asGrep := parseOptions()
 
 	re, regexpErr := regexp.Compile(pattern)
 	errCheck(regexpErr)
@@ -70,7 +47,6 @@ func main() {
 	reErase, eraseRegexpErr := regexp.Compile(erasePattern)
 	errCheck(eraseRegexpErr)
 	var (
-		whole []byte
 		ioerr error
 	)
 	if dirName == "" && fileName == "" && len(files) == 0 {
@@ -96,7 +72,9 @@ func main() {
 			go func(in chan string, pe chan int) {
 				if p.PollEvent() == false {
 					p.Close()
-					close(in)
+					if !usePager {
+						close(in)
+					}
 					pe <- 1
 					return
 				}
@@ -156,24 +134,40 @@ func main() {
 			p.Files = files
 		}
 
+		var fp *os.File
 		for i := 0; i < len(files); i++ {
-			whole, ioerr = ioutil.ReadFile(files[i])
+			fp, ioerr = os.Open(files[i])
 			errCheck(ioerr)
-			colored := coloringText(re, reErase, string(whole))
+			reader := bufio.NewReaderSize(fp, 4096)
+			for {
+				line, _, ioerr := reader.ReadLine()
+				if ioerr != io.EOF {
+					errCheck(ioerr)
+				} else if ioerr == io.EOF {
+					break
+				}
 
+				colored := coloringText(re, reErase, string(line))
+				if !asGrep || colored != string(line) {
+					if usePager {
+						p.AddContent(colored + "\n")
+					} else {
+						fmt.Println(colored)
+					}
+				}
+			}
 			if usePager {
 				p.Index = i
-				p.SetContent(colored)
 				p.File = files[i]
 				if p.PollEvent() {
 					i = p.Index
 				} else {
 					break
 				}
-			} else {
-				fmt.Print(colored)
 			}
+
 		}
+
 		if usePager {
 			p.Close()
 		}
@@ -219,14 +213,11 @@ func checkFileName(targetFile string, fileName string) bool {
 	return false
 }
 
-func parseOptions() (pattern string, files []string, fileName string, dirName string, erasePattern string) {
+func parseOptions() (pattern string, files []string, fileName string, dirName string, erasePattern string, usePager bool, asGrep bool) {
 	replace := make([]string, 0)
-	var (
-		c int
-	)
+
 	regexpFlg := ""
-	regexpFlgs := make(map[byte]bool)
-	regexpFlgs['s'] = true
+	regexpFlgs := make(map[byte]*bool)
 
 	colorMap := map[byte]string{
 		'r': "red",
@@ -238,60 +229,66 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		'k': "black",
 		'w': "white",
 	}
-
-	options := "imdhPR:f:e:"
 	colorOptions := make([]string, 0)
 	colorHelp := make([]string, 0)
+
+	regexps := make(map[byte]*string)
 	for k := range colorMap {
-		colorOptions = append(colorOptions, string(k))
-		colorHelp = append(colorHelp, "-"+string(k))
+		regexps[k] = flag.String(string(k), "", "to be "+colorMap[k])
+	}
+	help := flag.Bool("h", false, "show usage")
+	regexpFlgs['m'] = flag.Bool("m", false, "regexp for multilines")
+	regexpFlgs['i'] = flag.Bool("i", false, "regexp for case insensitive")
+	usePagerP := flag.Bool("P", false, "use bultin pager")
+	isDebugP := flag.Bool("d", false, "debug mode")
+	asGrepP := flag.Bool("grep", false, "take string and ignore not matched lines with it like grep")
+	dirNameP := flag.String("R", "", "file_name/pattern/-(stdin) ... read from file. read stdin if '-' is given")
+	fileNameP := flag.String("f", "", "recursively read directory")
+	erasePatternP := flag.String("e", "", "erase matched string")
+
+	flag.Parse()
+
+	isDebug = *isDebugP
+	usePager = *usePagerP
+	asGrep = *asGrepP
+	dirName = *dirNameP
+	fileName = *fileNameP
+	erasePattern = *erasePatternP
+
+	if *help {
+		flag.Usage()
+	}
+	if *regexpFlgs['m'] {
+		delete(regexpFlgs, 's')
 	}
 
-	for {
-		if c = Getopt(options + strings.Join(colorOptions, ":") + ":"); c == EOF {
-			break
-		}
-		switch c {
-		case 'h':
-			usage()
-		case 'f':
-			fileName = OptArg
-		case 'R':
-			dirName = OptArg
-		case 'P':
-			usePager = true
-		case 'd':
-			isDebug = true
-		case 'm':
-			regexpFlgs['m'] = true
-			delete(regexpFlgs, 's')
-		case 'i':
-			regexpFlgs['i'] = true
-		case 'e':
-			erasePattern = OptArg
-		default:
-			if color, ok := colorMap[byte(c)]; ok {
-				replace = append(replace, fmt.Sprintf("(?P<%s>%s)", color, OptArg))
-			} else {
-				os.Exit(1)
-			}
+	for k := range colorMap {
+		if *regexps[k] != "" {
+			replace = append(replace, fmt.Sprintf("(?P<%s>%s)", colorMap[k], *regexps[k]))
+			colorOptions = append(colorOptions, string(k))
+			colorHelp = append(colorHelp, "-"+string(k))
 		}
 	}
-	for n := OptInd; n < len(os.Args); n++ {
+
+	if !*regexpFlgs['m'] {
+		var tx = true
+		regexpFlgs['s'] = &tx
+	}
+
+	for n := 0; n < flag.NArg(); n++ {
 		if isDebug {
-			log.Println("add file: " + os.Args[n])
+			log.Println("add file: " + flag.Arg(n))
 		}
-		files = append(files, os.Args[n])
+		files = append(files, flag.Arg(n))
 	}
-	OptErr = 0
-
 	if len(replace) == 0 {
+		println(123)
 		println("any of " + strings.Join(colorHelp, ", ") + " AND -R or -f is required.")
 		os.Exit(1)
 	}
 
 	for k, v := range regexpFlgs {
-		if v {
+		if *v {
 			regexpFlg += string(k)
 		}
 	}
