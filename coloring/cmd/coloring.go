@@ -16,7 +16,6 @@ import (
 )
 
 var isDebug bool
-var usePager bool
 
 func errCheck(e error) {
 	if e != nil {
@@ -38,8 +37,7 @@ func readStdin(in chan string, usePager bool) {
 }
 
 func main() {
-
-	pattern, files, fileName, dirName, erasePattern, usePager, asGrep := parseOptions()
+	pattern, files, fileName, dirName, erasePattern, options := parseOptions()
 
 	re, regexpErr := regexp.Compile(pattern)
 	errCheck(regexpErr)
@@ -50,20 +48,20 @@ func main() {
 		ioerr error
 	)
 	if dirName == "" && fileName == "" && len(files) == 0 {
-		fmt.Println("-R or -f is requreid")
+		fmt.Println("-R, -f or file names as rest of args is requreid")
 		os.Exit(1)
 	} else if fileName == "-" {
 		// read from STDIN with channel
 		stat, _ := os.Stdin.Stat()
 
-		if usePager {
+		if options["P"] {
 			if (stat.Mode() & os.ModeCharDevice) != 0 {
-				fmt.Fprintln(os.Stderr, "pager doesn't work without pipe.")
+				fmt.Fprintln(os.Stderr, "pager with stdin doesn't work without pipe.")
 				os.Exit(1)
 			}
 
 			in := make(chan string)
-			go readStdin(in, usePager)
+			go readStdin(in, options["P"])
 
 			var p pager.Pager
 			p.Init()
@@ -72,7 +70,7 @@ func main() {
 			go func(in chan string, pe chan int) {
 				if p.PollEvent() == false {
 					p.Close()
-					if !usePager {
+					if !options["P"] {
 						close(in)
 					}
 					pe <- 1
@@ -99,7 +97,7 @@ func main() {
 			defer p.Close()
 		} else {
 			in := make(chan string)
-			go readStdin(in, usePager)
+			go readStdin(in, options["P"])
 
 			for {
 				l, ok := <-in
@@ -112,72 +110,96 @@ func main() {
 		}
 	} else {
 		// read from file or dir
-		var isRecursive bool = true
-		if len(files) == 0 {
-			if fileName == "" {
-				fileName = "*.*"
-			}
-			dirName = "."
-		}
 		if dirName != "" {
-			seekDir(&files, dirName, fileName, isRecursive)
+			seekDir(&files, dirName, fileName, options["R"])
 		}
 		if isDebug {
-			log.Println("filename: " + fileName)
-			log.Println("files:")
-			log.Println(files)
-			log.Println("dirName: " + dirName)
+			log.Println("### read from file or dir in main")
+			log.Println("File Name: " + fileName)
+			log.Println("Files: " + strings.Join(files, ", "))
+			log.Println("Dir Name: " + dirName)
 		}
 		var p pager.Pager
-		if usePager {
+
+		if options["P"] {
 			p.Init()
 			p.Files = files
 		}
 
-		var fp *os.File
-		for i := 0; i < len(files); i++ {
-			fp, ioerr = os.Open(files[i])
-			errCheck(ioerr)
-			reader := bufio.NewReaderSize(fp, 4096)
-			for {
-				line, _, ioerr := reader.ReadLine()
-				if ioerr != io.EOF {
-					errCheck(ioerr)
-				} else if ioerr == io.EOF {
-					break
-				}
+		if options["s"] {
+			var whole []byte
 
-				colored := coloringText(re, reErase, string(line))
-				if !asGrep || colored != string(line) {
-					if usePager {
-						p.AddContent(colored + "\n")
+			for i := 0; i < len(files); i++ {
+				whole, ioerr = ioutil.ReadFile(files[i])
+				errCheck(ioerr)
+				colored := coloringText(re, reErase, string(whole))
+
+				if options["P"] {
+					p.Index = i
+					p.SetContent(colored)
+					p.File = files[i]
+					if p.PollEvent() {
+						i = p.Index
 					} else {
-						fmt.Println(colored)
+						break
+					}
+				} else {
+					fmt.Print(colored)
+				}
+			}
+		} else {
+			for i := 0; i < len(files); i++ {
+				var fp *os.File
+				fp, ioerr = os.Open(files[i])
+				errCheck(ioerr)
+				reader := bufio.NewReaderSize(fp, 4096)
+				if options["P"] {
+					p.Index = i
+					p.File = files[i]
+					p.SetContent("")
+				}
+				for {
+					line, _, ioerr := reader.ReadLine()
+					if ioerr != io.EOF {
+						errCheck(ioerr)
+					} else if ioerr == io.EOF {
+						break
+					}
+
+					colored := coloringText(re, reErase, string(line))
+					if !options["grep"] || colored != string(line) {
+						if options["P"] {
+							p.AddContent(colored + "\n")
+						} else {
+							fmt.Println(colored)
+						}
+					}
+				}
+				ioerr = fp.Close()
+				errCheck(ioerr)
+				if options["P"] {
+					if p.PollEvent() {
+						i = p.Index
+					} else {
+						break
 					}
 				}
 			}
-			if usePager {
-				p.Index = i
-				p.File = files[i]
-				if p.PollEvent() {
-					i = p.Index
-				} else {
-					break
-				}
-			}
 
 		}
-
-		if usePager {
+		if options["P"] {
 			p.Close()
 		}
+
 	}
 	os.Exit(0)
 }
 
 func seekDir(files *[]string, dirName string, fileName string, isRecursive bool) {
 	if isDebug {
-		log.Println(fileName)
+		log.Println("### seekDir")
+		log.Println("File Name:" + fileName)
+		log.Println("Dir Name:" + dirName)
 	}
 	fileInfo, ioerr := ioutil.ReadDir(dirName)
 	errCheck(ioerr)
@@ -186,13 +208,13 @@ func seekDir(files *[]string, dirName string, fileName string, isRecursive bool)
 		if fileInfo[i].IsDir() == false {
 			if fileName == "" || checkFileName(fullName, fileName) {
 				if isDebug {
-					log.Println(fullName)
+					log.Println("File Full Name: " + fullName)
 				}
 				*files = append(*files, fullName)
 			}
 		} else if isRecursive && fileInfo[i].Name()[0] != '.' {
 			if isDebug {
-				log.Println("seek dir")
+				log.Println("Seek Dir: " + filepath.Join(dirName, fileInfo[i].Name()))
 			}
 			seekDir(files, filepath.Join(dirName, fileInfo[i].Name()), fileName, true)
 		}
@@ -205,7 +227,11 @@ func checkFileName(targetFile string, fileName string) bool {
 	pattern = strings.Replace(pattern, "*", ".*", -1)
 	matched, err := regexp.MatchString("(^|/)"+pattern+"$", targetFile)
 	if isDebug {
-		log.Println(targetFile, fileName, pattern, matched)
+		log.Println("### checkFileName")
+		log.Println("Target File: " + targetFile)
+		log.Println("File Name: " + fileName)
+		log.Println("Pattern: " + pattern)
+		log.Printf("Matched: %t\n", matched)
 	}
 	if err == nil && matched {
 		return true
@@ -213,12 +239,25 @@ func checkFileName(targetFile string, fileName string) bool {
 	return false
 }
 
-func parseOptions() (pattern string, files []string, fileName string, dirName string, erasePattern string, usePager bool, asGrep bool) {
+type optDef struct {
+	isBool   bool
+	isString bool
+	boolDef  bool
+	strDef   string
+	help     string
+}
+
+func parseOptions() (pattern string, files []string, fileName string, dirName string, erasePattern string, options map[string]bool) {
 	replace := make([]string, 0)
-
 	regexpFlg := ""
-	regexpFlgs := make(map[byte]*bool)
-
+	options = make(map[string]bool)
+	regexpFlgs := make(map[byte]bool)
+	strOptions := make(map[string]string)
+	colorOptions := make([]string, 0)
+	colorHelp := make([]string, 0)
+	boolParsedOpt := make(map[string]*bool)
+	strParsedOpt := make(map[string]*string)
+	regexps := make(map[byte]*string)
 	colorMap := map[byte]string{
 		'r': "red",
 		'g': "green",
@@ -229,39 +268,83 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		'k': "black",
 		'w': "white",
 	}
-	colorOptions := make([]string, 0)
-	colorHelp := make([]string, 0)
 
-	regexps := make(map[byte]*string)
 	for k := range colorMap {
-		regexps[k] = flag.String(string(k), "", "to be "+colorMap[k])
+		regexps[k] = flag.String(string(k), "", "regexp to be "+colorMap[k])
 	}
-	help := flag.Bool("h", false, "show usage")
-	regexpFlgs['m'] = flag.Bool("m", false, "regexp for multilines")
-	regexpFlgs['i'] = flag.Bool("i", false, "regexp for case insensitive")
-	usePagerP := flag.Bool("P", false, "use bultin pager")
-	isDebugP := flag.Bool("d", false, "debug mode")
-	asGrepP := flag.Bool("grep", false, "take string and ignore not matched lines with it like grep")
-	dirNameP := flag.String("R", "", "file_name/pattern/-(stdin) ... read from file. read stdin if '-' is given")
-	fileNameP := flag.String("f", "", "recursively read directory")
-	erasePatternP := flag.String("e", "", "erase matched string")
+
+	opt := map[string]optDef{
+		"help": optDef{isBool: true, boolDef: false, help: "show usage"},
+		"h":    optDef{isBool: true, boolDef: false, help: "show usage"},
+		"P":    optDef{isBool: true, boolDef: false, help: "use biltin pager"},
+		"d":    optDef{isBool: true, boolDef: false, help: "debug mode"},
+		"grep": optDef{isBool: true, boolDef: false, help: "take string and ignore not matched lines with it like grep"},
+		"s":    optDef{isBool: true, boolDef: false, help: "regexp option. tread given content as single line(default as multi line)"},
+		"i":    optDef{isBool: true, boolDef: false, help: "regexp option. do case insensitive pattern matching."},
+		"R":    optDef{isString: true, strDef: "", help: "recursively read given directory"},
+		"f":    optDef{isString: true, strDef: "*.*", help: "file_name/pattern/-(stdin) ... read from file. read stdin if '-' is given"},
+		"e":    optDef{isString: true, strDef: "", help: "erase matched string"},
+	}
+
+	for k, v := range opt {
+		if v.isBool {
+			boolParsedOpt[k] = flag.Bool(k, v.boolDef, v.help)
+		} else if v.isString {
+			strParsedOpt[k] = flag.String(k, v.strDef, v.help)
+		}
+	}
 
 	flag.Parse()
 
-	isDebug = *isDebugP
-	usePager = *usePagerP
-	asGrep = *asGrepP
-	dirName = *dirNameP
-	fileName = *fileNameP
-	erasePattern = *erasePatternP
-
-	if *help {
+	// print usage and exit
+	if *boolParsedOpt["help"] || *boolParsedOpt["h"] {
 		flag.Usage()
-	}
-	if *regexpFlgs['m'] {
-		delete(regexpFlgs, 's')
+		os.Exit(1)
 	}
 
+	// parse options
+	for k, v := range boolParsedOpt {
+		options[k] = *v
+	}
+	for k, v := range strParsedOpt {
+		strOptions[k] = *v
+	}
+	if strOptions["R"] != "" {
+		options["R"] = true
+	}
+
+	isDebug = options["d"]
+	fileName = strOptions["f"]
+	erasePattern = strOptions["e"]
+	dirName = strOptions["R"]
+
+	if isDebug {
+		log.Println("### parseOptions")
+	}
+
+	// rest args after options are regareded as files
+	for n := 0; n < flag.NArg(); n++ {
+		if isDebug {
+			log.Println("Add File: " + flag.Arg(n))
+		}
+		files = append(files, flag.Arg(n))
+	}
+
+	// buld regexp flags
+	for _, k := range []byte{'s', 'i'} {
+		regexpFlgs[k] = options[string(k)]
+	}
+	if !regexpFlgs['s'] {
+		regexpFlgs['m'] = true
+	}
+	for k, v := range regexpFlgs {
+		if v {
+			regexpFlg += string(k)
+		}
+	}
+	regexpFlg = "(?" + regexpFlg + ")"
+
+	// build regexps
 	for k := range colorMap {
 		if *regexps[k] != "" {
 			replace = append(replace, fmt.Sprintf("(?P<%s>%s)", colorMap[k], *regexps[k]))
@@ -269,35 +352,15 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 			colorHelp = append(colorHelp, "-"+string(k))
 		}
 	}
-
-	if !*regexpFlgs['m'] {
-		var tx = true
-		regexpFlgs['s'] = &tx
-	}
-
-	for n := 0; n < flag.NArg(); n++ {
-		if isDebug {
-			log.Println("add file: " + flag.Arg(n))
-		}
-		files = append(files, flag.Arg(n))
-	}
 	if len(replace) == 0 {
-		println(123)
-		println("any of " + strings.Join(colorHelp, ", ") + " AND -R or -f is required.")
+		fmt.Println("any of " + strings.Join(colorHelp, ", ") + " AND -R, -f or  file names as rest of args is required.")
 		os.Exit(1)
 	}
 
-	for k, v := range regexpFlgs {
-		if *v {
-			regexpFlg += string(k)
-		}
-	}
-	regexpFlg = "(?" + regexpFlg + ")"
-
+	// assemble regexps
 	pattern = regexpFlg + strings.Join(replace, "|")
 	if isDebug {
 		log.Println("regexp: " + pattern)
-		log.Println("dirName: " + dirName)
 	}
 	return
 }
