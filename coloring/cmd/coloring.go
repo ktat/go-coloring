@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/ktat/go-coloring/coloring"
-	"github.com/ktat/go-pager"
 	"io"
 	"io/ioutil"
 	"log"
@@ -23,17 +22,14 @@ func errCheck(e error) {
 	}
 }
 
-func readStdin(in chan string, usePager bool) {
+func readStdin(in chan string) {
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for scanner.Scan() {
 		var s = scanner.Text()
 		in <- s
 	}
-
-	if !usePager {
-		close(in)
-	}
+	close(in)
 }
 
 func main() {
@@ -47,83 +43,32 @@ func main() {
 	var (
 		ioerr error
 	)
-	if dirName == "" && fileName == "" && len(files) == 0 {
-		fmt.Println("-R, -f or file names as rest of args is requreid")
-		os.Exit(1)
-	} else if fileName == "-" {
+	if fileName == "-" {
 		// read from STDIN with channel
-		stat, _ := os.Stdin.Stat()
 
-		if options["P"] {
-			if (stat.Mode() & os.ModeCharDevice) != 0 {
-				fmt.Fprintln(os.Stderr, "pager with stdin doesn't work without pipe.")
-				os.Exit(1)
-			}
+		in := make(chan string)
+		go readStdin(in)
 
-			in := make(chan string)
-			go readStdin(in, options["P"])
-
-			var p pager.Pager
-			p.Init()
-
-			pollEnd := make(chan int)
-			go func(in chan string, pe chan int) {
-				if p.PollEvent() == false {
-					p.Close()
-					if !options["P"] {
-						close(in)
-					}
-					pe <- 1
-					return
-				}
-			}(in, pollEnd)
-
-			go func() {
-				for {
-					l, ok := <-in
-					if ok == false {
-						break
-					} else {
-						p.AddContent(coloringText(re, reErase, l+"\n"))
-						p.Draw()
-					}
-
-				}
-			}()
-
-			<-pollEnd
-
-			close(pollEnd)
-			defer p.Close()
-		} else {
-			in := make(chan string)
-			go readStdin(in, options["P"])
-
-			for {
-				l, ok := <-in
-				if ok == false {
-					break
-				} else {
-					fmt.Println(coloringText(re, reErase, l))
-				}
+		for {
+			l, ok := <-in
+			if ok == false {
+				break
+			} else {
+				fmt.Println(coloringText(re, reErase, l))
 			}
 		}
 	} else {
 		// read from file or dir
 		if dirName != "" {
 			seekDir(&files, dirName, fileName, options["R"])
+		} else {
+			files = append(files, fileName)
 		}
 		if isDebug {
 			log.Println("### read from file or dir in main")
 			log.Println("File Name: " + fileName)
 			log.Println("Files: " + strings.Join(files, ", "))
 			log.Println("Dir Name: " + dirName)
-		}
-		var p pager.Pager
-
-		if options["P"] {
-			p.Init()
-			p.Files = files
 		}
 
 		if options["s"] {
@@ -134,18 +79,7 @@ func main() {
 				errCheck(ioerr)
 				colored := coloringText(re, reErase, string(whole))
 
-				if options["P"] {
-					p.Index = i
-					p.SetContent(colored)
-					p.File = files[i]
-					if p.PollEvent() {
-						i = p.Index
-					} else {
-						break
-					}
-				} else {
-					fmt.Print(colored)
-				}
+				fmt.Print(colored)
 			}
 		} else {
 			for i := 0; i < len(files); i++ {
@@ -153,11 +87,6 @@ func main() {
 				fp, ioerr = os.Open(files[i])
 				errCheck(ioerr)
 				reader := bufio.NewReaderSize(fp, 4096)
-				if options["P"] {
-					p.Index = i
-					p.File = files[i]
-					p.SetContent("")
-				}
 				for {
 					line, _, ioerr := reader.ReadLine()
 					if ioerr != io.EOF {
@@ -168,27 +97,13 @@ func main() {
 
 					colored := coloringText(re, reErase, string(line))
 					if !options["grep"] || colored != string(line) {
-						if options["P"] {
-							p.AddContent(colored + "\n")
-						} else {
-							fmt.Println(colored)
-						}
+						fmt.Println(colored)
 					}
 				}
 				ioerr = fp.Close()
 				errCheck(ioerr)
-				if options["P"] {
-					if p.PollEvent() {
-						i = p.Index
-					} else {
-						break
-					}
-				}
 			}
 
-		}
-		if options["P"] {
-			p.Close()
 		}
 
 	}
@@ -276,13 +191,12 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 	opt := map[string]optDef{
 		"help": optDef{isBool: true, boolDef: false, help: "show usage"},
 		"h":    optDef{isBool: true, boolDef: false, help: "show usage"},
-		"P":    optDef{isBool: true, boolDef: false, help: "use biltin pager"},
 		"d":    optDef{isBool: true, boolDef: false, help: "debug mode"},
 		"grep": optDef{isBool: true, boolDef: false, help: "take string and ignore not matched lines with it like grep"},
 		"s":    optDef{isBool: true, boolDef: false, help: "regexp option. tread given content as single line(default as multi line)"},
 		"i":    optDef{isBool: true, boolDef: false, help: "regexp option. do case insensitive pattern matching."},
-		"R":    optDef{isString: true, strDef: "", help: "recursively read given directory"},
-		"f":    optDef{isString: true, strDef: "*.*", help: "file_name/pattern/-(stdin) ... read from file. read stdin if '-' is given"},
+		"R":    optDef{isString: true, strDef: "", help: "recursively read given directory. using this option withaout -f, -f is set as '*.*'"},
+		"f":    optDef{isString: true, strDef: "-", help: "file_name/pattern ... read from file. read stdin if not give."},
 		"e":    optDef{isString: true, strDef: "", help: "erase matched string"},
 	}
 
@@ -330,6 +244,10 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		files = append(files, flag.Arg(n))
 	}
 
+	if len(files) != 0 && dirName != "" && fileName == "-" {
+		fileName = "*.*"
+	}
+
 	// buld regexp flags
 	for _, k := range []byte{'s', 'i'} {
 		regexpFlgs[k] = options[string(k)]
@@ -353,7 +271,9 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		}
 	}
 	if len(replace) == 0 {
-		fmt.Println("any of " + strings.Join(colorHelp, ", ") + " AND -R, -f or  file names as rest of args is required.")
+		fmt.Println("any of " + strings.Join(colorHelp, ", ") + " AND -R, -f or file names as rest of args is required.\n")
+		flag.Usage()
+
 		os.Exit(1)
 	}
 
