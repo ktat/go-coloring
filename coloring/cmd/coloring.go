@@ -84,7 +84,7 @@ func main() {
 				errCheck(ioerr)
 				colored := coloringText(re, reErase, string(whole))
 
-				fmt.Print(colored)
+				printColored(colored, files, i)
 			}
 		} else {
 			for i := 0; i < len(files); i++ {
@@ -102,7 +102,7 @@ func main() {
 
 					colored := coloringText(re, reErase, string(line))
 					if !options["grep"] || colored != string(line) {
-						fmt.Println(colored)
+						printColored(colored, files, i)
 					}
 				}
 				ioerr = fp.Close()
@@ -113,6 +113,14 @@ func main() {
 
 	}
 	os.Exit(0)
+}
+
+func printColored(colored string, files []string, i int) {
+	if len(files) == 1 {
+		fmt.Print(colored)
+	} else {
+		fmt.Print(addFileName(colored, files[i]))
+	}
 }
 
 func seekDir(files *[]string, dirName string, fileName string, isRecursive bool) {
@@ -139,6 +147,11 @@ func seekDir(files *[]string, dirName string, fileName string, isRecursive bool)
 			seekDir(files, filepath.Join(dirName, fileInfo[i].Name()), fileName, true)
 		}
 	}
+}
+
+func addFileName(content string, fileName string) string {
+	var r = regexp.MustCompile("(?m)^(\\033\\[0m)?")
+	return r.ReplaceAllString(content, "$1"+fileName+":") + "\n"
 }
 
 func checkFileName(targetFile string, fileName string) bool {
