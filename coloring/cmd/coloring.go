@@ -44,17 +44,22 @@ func main() {
 		ioerr error
 	)
 	if fileName == "-" {
-		// read from STDIN with channel
 
-		in := make(chan string)
-		go readStdin(in)
-
-		for {
-			l, ok := <-in
-			if ok == false {
-				break
-			} else {
-				fmt.Println(coloringText(re, reErase, l))
+		if options["s"] {
+			whole, ioerr := ioutil.ReadAll(os.Stdin)
+			errCheck(ioerr)
+			fmt.Println(coloringText(re, reErase, string(whole)))
+		} else {
+			in := make(chan string)
+			go readStdin(in)
+			// read from STDIN with channel
+			for {
+				l, ok := <-in
+				if ok == false {
+					break
+				} else {
+					fmt.Println(coloringText(re, reErase, l))
+				}
 			}
 		}
 	} else {
