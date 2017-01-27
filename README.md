@@ -1,11 +1,11 @@
-# go-coloring
+# kolorit
 
 coloring text with regexp
 
 # USAGE
 
 ```
-usage: coloring [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
+usage: kolorit [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
 
         -f file_name/pattern/-(stdin) ... read from file. read stdin if '-' is given
         -R dir  ... recursively read directory
