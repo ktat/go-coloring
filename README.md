@@ -24,7 +24,7 @@ usage: kolorit [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
         -h ... help
         -d ... print debug message
         -use ... use predefined setting from config file($HOME/.koloit.toml)
-        -conf ... path of config file (default "/home/ktat/.kolorit.toml")
+        -conf ... path of config file (default "$HOME/.kolorit.toml")
         -grep ... take string and ignore not matched lines with it like grep
 ```
 # Config file
