@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"github.com/ktat/go-coloring/coloring"
 	"io"
 	"io/ioutil"
 	"log"
@@ -12,6 +11,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/ktat/kolorit"
+	"github.com/mitchellh/go-homedir"
+	toml "github.com/pelletier/go-toml"
 )
 
 var isDebug bool
@@ -20,6 +23,12 @@ func errCheck(e error) {
 	if e != nil {
 		log.Fatal(e)
 	}
+}
+
+func errMessage(e string) {
+	fmt.Println("Error: " + e + "\n")
+	flag.Usage()
+	os.Exit(1)
 }
 
 func readStdin(in chan string) {
@@ -40,11 +49,11 @@ func main() {
 
 	reErase, eraseRegexpErr := regexp.Compile(erasePattern)
 	errCheck(eraseRegexpErr)
-	var (
-		ioerr error
-	)
-	if fileName == "-" {
 
+	var ioerr error
+
+	if fileName == "-" {
+		// read from STDIN
 		if options["s"] {
 			whole, ioerr := ioutil.ReadAll(os.Stdin)
 			errCheck(ioerr)
@@ -108,9 +117,7 @@ func main() {
 				ioerr = fp.Close()
 				errCheck(ioerr)
 			}
-
 		}
-
 	}
 	os.Exit(0)
 }
@@ -202,6 +209,13 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		'w': "white",
 	}
 
+	homedir, err := homedir.Dir()
+	if err != nil {
+		errCheck(err)
+	} else {
+		homedir += string(os.PathSeparator)
+	}
+
 	for k := range colorMap {
 		regexps[k] = flag.String(string(k), "", "regexp to be "+colorMap[k])
 	}
@@ -216,6 +230,8 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		"R":    optDef{isString: true, strDef: "", help: "recursively read given directory. using this option withaout -f, -f is set as '*.*'"},
 		"f":    optDef{isString: true, strDef: "-", help: "file_name/pattern ... read from file. read stdin if not give."},
 		"e":    optDef{isString: true, strDef: "", help: "erase matched string"},
+		"use":  optDef{isString: true, strDef: "", help: "use predefined setting from config file($HOME/.kolorit.toml)"},
+		"conf": optDef{isString: true, strDef: homedir + ".kolorit.toml", help: "path of config file"},
 	}
 
 	for k, v := range opt {
@@ -228,12 +244,6 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 
 	flag.Parse()
 
-	// print usage and exit
-	if *boolParsedOpt["help"] || *boolParsedOpt["h"] {
-		flag.Usage()
-		os.Exit(1)
-	}
-
 	// parse options
 	for k, v := range boolParsedOpt {
 		options[k] = *v
@@ -241,11 +251,23 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 	for k, v := range strParsedOpt {
 		strOptions[k] = *v
 	}
+
+	isDebug = options["d"]
+
+	// print usage and exit
+	if options["help"] || options["h"] {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	if strOptions["use"] != "" {
+		parseConfig(strOptions["conf"], strOptions["use"], colorMap, &regexps)
+	}
+
 	if strOptions["R"] != "" {
 		options["R"] = true
 	}
 
-	isDebug = options["d"]
 	fileName = strOptions["f"]
 	erasePattern = strOptions["e"]
 	dirName = strOptions["R"]
@@ -285,14 +307,11 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		if *regexps[k] != "" {
 			replace = append(replace, fmt.Sprintf("(?P<%s>%s)", colorMap[k], *regexps[k]))
 			colorOptions = append(colorOptions, string(k))
-			colorHelp = append(colorHelp, "-"+string(k))
 		}
+		colorHelp = append(colorHelp, "-"+string(k))
 	}
 	if len(replace) == 0 {
-		fmt.Println("any of " + strings.Join(colorHelp, ", ") + " AND -R, -f or file names as rest of args is required.\n")
-		flag.Usage()
-
-		os.Exit(1)
+		errMessage("any of " + strings.Join(colorHelp, ", ") + " AND -R, -f or file names as rest of args is required.\n")
 	}
 
 	// assemble regexps
@@ -303,17 +322,47 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 	return
 }
 
+func parseConfig(configFile string, use string, colorMap map[byte]string, regexps *map[byte]*string) {
+	_, err := os.Stat(configFile)
+	if err != nil {
+		errMessage(configFile + " doesn't exist.")
+	}
+
+	config, err := toml.LoadFile(configFile)
+	if err != nil {
+		errCheck(err)
+	}
+	colorOpt := config.Get(use)
+	switch colorOpt.(type) {
+	case nil:
+		errMessage("'" + use + "' is not defined in " + configFile)
+	}
+
+	for k := range colorMap {
+		isRegexp := colorOpt.(*toml.TomlTree).Get(string(k))
+		switch isRegexp.(type) {
+		case nil:
+			continue
+		default:
+			regexpStr := isRegexp.(string)
+			if regexpStr != "" {
+				(*regexps)[k] = &regexpStr
+			}
+		}
+	}
+}
+
 func coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) string {
 	lines = reErase.ReplaceAllString(lines, "")
-	colorFunc := map[string]func(s coloring.String) string{
-		"red":    func(s coloring.String) string { return s.Red() },
-		"green":  func(s coloring.String) string { return s.Green() },
-		"blue":   func(s coloring.String) string { return s.Blue() },
-		"yellow": func(s coloring.String) string { return s.Yellow() },
-		"white":  func(s coloring.String) string { return s.White() },
-		"cyan":   func(s coloring.String) string { return s.Cyan() },
-		"black":  func(s coloring.String) string { return s.Black() },
-		"purple": func(s coloring.String) string { return s.Magenta() },
+	colorFunc := map[string]func(s kolorit.String) string{
+		"red":    func(s kolorit.String) string { return s.Red() },
+		"green":  func(s kolorit.String) string { return s.Green() },
+		"blue":   func(s kolorit.String) string { return s.Blue() },
+		"yellow": func(s kolorit.String) string { return s.Yellow() },
+		"white":  func(s kolorit.String) string { return s.White() },
+		"cyan":   func(s kolorit.String) string { return s.Cyan() },
+		"black":  func(s kolorit.String) string { return s.Black() },
+		"purple": func(s kolorit.String) string { return s.Magenta() },
 	}
 
 	lines = re.ReplaceAllStringFunc(lines, func(s string) string {
@@ -339,19 +388,19 @@ func coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) strin
 			}
 			for i := len(result[k]) - 1; i >= 0; i -= 2 {
 				if result[k][i] > 0 {
-					var matched_index []int
-					matched_index = append(matched_index, result[k][i-1], result[k][i])
-					var color coloring.String
+					var matchedIndex []int
+					matchedIndex = append(matchedIndex, result[k][i-1], result[k][i])
+					var color kolorit.String
 
-					if matched_index[1] > 0 {
-						color.Str = s[matched_index[0]:matched_index[1]]
+					if matchedIndex[1] > 0 {
+						color.Str = s[matchedIndex[0]:matchedIndex[1]]
 					}
-					if matched_index[0] > 0 {
-						newStr = s[0:matched_index[0]]
+					if matchedIndex[0] > 0 {
+						newStr = s[0:matchedIndex[0]]
 					}
 					newStr += colorFunc[k](color)
-					if matched_index[1] > 0 && matched_index[1] < len(s) {
-						newStr += s[matched_index[1]:len(s)]
+					if matchedIndex[1] > 0 && matchedIndex[1] < len(s) {
+						newStr += s[matchedIndex[1]:len(s)]
 					}
 					s = newStr
 				}

@@ -1,4 +1,4 @@
-package coloring
+package kolorit
 
 import (
 	"fmt"

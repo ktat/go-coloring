@@ -23,14 +23,33 @@ usage: coloring [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
         -P ... use builtin pager
         -h ... help
         -d ... print debug message
-        --grep ... take string and ignore not matched lines with it like grep
+        -use ... use predefined setting from config file($HOME/.koloit.toml)
+        -conf ... path of config file (default "/home/ktat/.kolorit.toml")
+        -grep ... take string and ignore not matched lines with it like grep
+```
+# Config file
+
+You can predefine color regexp in config file($HOME/.kolorit.toml) like the following
+```
+[calc]
+y = '[=?.<>\-+*/]+'
+b = '\d+'
+
+[date_time]
+y = '\d{4}[/-]\d{2}[-/]\d{2}'
+b = '\d{2}:\d{2}(?::\d{2})?'
 ```
 
-# License
-
-MIT
+and you can use it like:
+```
+% kolorit -use calc -f one.txt
+% echo "2017-01-01 10:00:00" | kolorit -use date_time
+```
 
 # Author
 
 Atsushi Kato (ktat)
 
+# License
+
+MIT: https://ktat.mit-license.org/2016
