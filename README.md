@@ -1,5 +1,7 @@
 # kolorit
 
+[![Circle CI](https://circleci.com/gh/ktat/kolorit/tree/master.svg?style=shield)](https://circleci.com/gh/ktat/kolorit/tree/master)
+
 coloring text with regexp
 
 # USAGE
