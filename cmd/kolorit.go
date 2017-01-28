@@ -57,7 +57,7 @@ func main() {
 		if options["s"] {
 			whole, ioerr := ioutil.ReadAll(os.Stdin)
 			errCheck(ioerr)
-			fmt.Println(coloringText(re, reErase, string(whole)))
+			fmt.Println(coloringText(re, reErase, string(whole), options["B"]))
 		} else {
 			in := make(chan string)
 			go readStdin(in)
@@ -67,7 +67,7 @@ func main() {
 				if ok == false {
 					break
 				} else {
-					fmt.Println(coloringText(re, reErase, l))
+					fmt.Println(coloringText(re, reErase, l, options["B"]))
 				}
 			}
 		}
@@ -91,7 +91,7 @@ func main() {
 			for i := 0; i < len(files); i++ {
 				whole, ioerr = ioutil.ReadFile(files[i])
 				errCheck(ioerr)
-				colored := coloringText(re, reErase, string(whole))
+				colored := coloringText(re, reErase, string(whole), options["B"])
 
 				printColored(colored, files, i)
 			}
@@ -109,7 +109,7 @@ func main() {
 						break
 					}
 
-					colored := coloringText(re, reErase, string(line))
+					colored := coloringText(re, reErase, string(line), options["B"])
 					if !options["grep"] || colored != string(line) {
 						printColored(colored, files, i)
 					}
@@ -230,6 +230,7 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		"R":    optDef{isString: true, strDef: "", help: "recursively read given directory. using this option withaout -f, -f is set as '*.*'"},
 		"f":    optDef{isString: true, strDef: "-", help: "file_name/pattern ... read from file. read stdin if not give."},
 		"e":    optDef{isString: true, strDef: "", help: "erase matched string"},
+		"B":    optDef{isBool: true, boolDef: false, help: "matched string to be bold"},
 		"use":  optDef{isString: true, strDef: "", help: "use predefined setting from config file($HOME/.kolorit.toml)"},
 		"conf": optDef{isString: true, strDef: homedir + ".kolorit.toml", help: "path of config file"},
 	}
@@ -261,7 +262,7 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 	}
 
 	if strOptions["use"] != "" {
-		parseConfig(strOptions["conf"], strOptions["use"], colorMap, &regexps)
+		parseConfig(strOptions["conf"], strOptions["use"], colorMap, &regexps, &options)
 	}
 
 	if strOptions["R"] != "" {
@@ -310,6 +311,7 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		}
 		colorHelp = append(colorHelp, "-"+string(k))
 	}
+
 	if len(replace) == 0 {
 		errMessage("any of " + strings.Join(colorHelp, ", ") + " AND -R, -f or file names as rest of args is required.\n")
 	}
@@ -322,7 +324,7 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 	return
 }
 
-func parseConfig(configFile string, use string, colorMap map[byte]string, regexps *map[byte]*string) {
+func parseConfig(configFile string, use string, colorMap map[byte]string, regexps *map[byte]*string, options *map[string]bool) {
 	_, err := os.Stat(configFile)
 	if err != nil {
 		errMessage(configFile + " doesn't exist.")
@@ -332,14 +334,14 @@ func parseConfig(configFile string, use string, colorMap map[byte]string, regexp
 	if err != nil {
 		errCheck(err)
 	}
-	colorOpt := config.Get(use)
-	switch colorOpt.(type) {
+	opt := config.Get(use)
+	switch opt.(type) {
 	case nil:
 		errMessage("'" + use + "' is not defined in " + configFile)
 	}
 
 	for k := range colorMap {
-		isRegexp := colorOpt.(*toml.TomlTree).Get(string(k))
+		isRegexp := opt.(*toml.TomlTree).Get(string(k))
 		switch isRegexp.(type) {
 		case nil:
 			continue
@@ -350,9 +352,20 @@ func parseConfig(configFile string, use string, colorMap map[byte]string, regexp
 			}
 		}
 	}
+	boolOpts := make([]string, 0)
+	boolOpts = append(boolOpts, "B", "m", "i", "s")
+	for _, k := range boolOpts {
+		boolOpt := opt.(*toml.TomlTree).Get(k)
+		switch boolOpt.(type) {
+		case nil:
+			continue
+		default:
+			(*options)[k] = boolOpt.(bool)
+		}
+	}
 }
 
-func coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) string {
+func coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string, withBold bool) string {
 	lines = reErase.ReplaceAllString(lines, "")
 	colorFunc := map[string]func(s kolorit.String) string{
 		"red":    func(s kolorit.String) string { return s.Red() },
@@ -391,6 +404,7 @@ func coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) strin
 					var matchedIndex []int
 					matchedIndex = append(matchedIndex, result[k][i-1], result[k][i])
 					var color kolorit.String
+					color.WithBold(withBold)
 
 					if matchedIndex[1] > 0 {
 						color.Str = s[matchedIndex[0]:matchedIndex[1]]

@@ -1,3 +1,4 @@
+// Package kolorit returns ASCII colored string
 package kolorit
 
 import (
@@ -6,63 +7,87 @@ import (
 )
 
 const (
-	BLACK   = "\033[30m"
-	RED     = "\033[31m"
-	GREEN   = "\033[32m"
-	YELLOW  = "\033[33m"
-	BLUE    = "\033[34m"
-	MAGENTA = "\033[35m"
-	CYAN    = "\033[36m"
-	WHITE   = "\033[37m"
-	BOLD    = "\033[1m"
-	RESET   = "\033[0m"
+	bLACK   = "\033[30m"
+	rED     = "\033[31m"
+	gREEN   = "\033[32m"
+	yELLOW  = "\033[33m"
+	bLUE    = "\033[34m"
+	mAGENTA = "\033[35m"
+	cYAN    = "\033[36m"
+	wHITE   = "\033[37m"
+	bOLD    = "\033[1m"
+	rESET   = "\033[0m"
 )
 
+// String is struct which contains string to be colored
 type String struct {
-	Str string
+	Str      string
+	withBold bool
+}
+
+// WithBold tell string should be bold
+func (s *String) WithBold(t bool) {
+	s.withBold = t
 }
 
 func (s String) resetWithLineBreak(color string) string {
 	var r = regexp.MustCompile("(?s)([\r\n]+)")
-	return r.ReplaceAllString(s.Str, RESET+"$1"+color)
+	return r.ReplaceAllString(s.Str, rESET+"$1"+color)
 }
 
+// String returns string you set
 func (s String) String() string {
 	return s.Str
 }
 
+func (s String) sprintf(c string) string {
+	if s.withBold {
+		c += bOLD
+	}
+	return fmt.Sprintf(c+"%s"+rESET, s.resetWithLineBreak(c))
+}
+
+// Black returns black colored string
 func (s String) Black() string {
-	return fmt.Sprintf(BLACK+"%s"+RESET, s.resetWithLineBreak(BLACK))
+	return s.sprintf(bLACK)
 }
 
+// Red returns red colored string
 func (s String) Red() string {
-	return fmt.Sprintf(RED+"%s"+RESET, s.resetWithLineBreak(RED))
+	return s.sprintf(rED)
 }
 
+// Green returns green colored string
 func (s String) Green() string {
-	return fmt.Sprintf(GREEN+"%s"+RESET, s.resetWithLineBreak(GREEN))
+	return s.sprintf(gREEN)
 }
 
+// Yellow returns yellow colored string
 func (s String) Yellow() string {
-	return fmt.Sprintf(YELLOW+"%s"+RESET, s.resetWithLineBreak(YELLOW))
+	return s.sprintf(yELLOW)
 }
 
+// Blue returns blue colored string
 func (s String) Blue() string {
-	return fmt.Sprintf(BLUE+"%s"+RESET, s.resetWithLineBreak(BLUE))
+	return s.sprintf(bLUE)
 }
 
+// Magenta returns blue colored string
 func (s String) Magenta() string {
-	return fmt.Sprintf(MAGENTA+"%s"+RESET, s.resetWithLineBreak(MAGENTA))
+	return s.sprintf(mAGENTA)
 }
 
+// Cyan returns cyan colored string
 func (s String) Cyan() string {
-	return fmt.Sprintf(CYAN+"%s"+RESET, s.resetWithLineBreak(CYAN))
+	return s.sprintf(cYAN)
 }
 
+// White returns white colored string
 func (s String) White() string {
-	return fmt.Sprintf(WHITE+"%s"+RESET, s.resetWithLineBreak(WHITE))
+	return s.sprintf(wHITE)
 }
 
+// Bold returns bold string
 func (s String) Bold() string {
-	return fmt.Sprintf(BOLD+"%s"+RESET, s.resetWithLineBreak(BOLD))
+	return fmt.Sprintf(bOLD+"%s"+rESET, s.resetWithLineBreak(bOLD))
 }
