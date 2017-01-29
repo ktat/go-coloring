@@ -19,16 +19,42 @@ import (
 
 var isDebug bool
 
+type kolor struct {
+	strOptions   map[string]string
+	options      map[string]bool
+	pattern      string
+	erasePattern string
+	files        []string
+	fileName     string
+	isRecursive  bool
+	fromSTDIN    bool
+	withBold     bool
+	asSingle     bool
+}
+
+func usage() {
+	fmt.Println(`Usage:
+	
+  kolorit [options] [FILES]
+  kolorit [options] -f "*.go"
+  kolorit [options] -R [FILES/DIRECTORIES]
+
+Options:
+`)
+	flag.PrintDefaults()
+	os.Exit(1)
+}
+
 func errCheck(e error) {
 	if e != nil {
-		log.Fatal(e)
+		fmt.Println(e)
+		os.Exit(1)
 	}
 }
 
 func errMessage(e string) {
 	fmt.Println("Error: " + e + "\n")
-	flag.Usage()
-	os.Exit(1)
+	usage()
 }
 
 func readStdin(in chan string) {
@@ -42,22 +68,27 @@ func readStdin(in chan string) {
 }
 
 func main() {
-	pattern, files, fileName, dirName, erasePattern, options := parseOptions()
+	kolor := kolor{
+		options:    make(map[string]bool),
+		strOptions: make(map[string]string),
+		files:      make([]string, 0),
+	}
+	kolor.parseOptions()
 
-	re, regexpErr := regexp.Compile(pattern)
+	re, regexpErr := regexp.Compile(kolor.pattern)
 	errCheck(regexpErr)
 
-	reErase, eraseRegexpErr := regexp.Compile(erasePattern)
+	reErase, eraseRegexpErr := regexp.Compile(kolor.erasePattern)
 	errCheck(eraseRegexpErr)
 
 	var ioerr error
 
-	if fileName == "-" {
+	if kolor.fromSTDIN {
 		// read from STDIN
-		if options["s"] {
+		if kolor.asSingle {
 			whole, ioerr := ioutil.ReadAll(os.Stdin)
 			errCheck(ioerr)
-			fmt.Println(coloringText(re, reErase, string(whole), options["B"]))
+			fmt.Println(kolor.coloringText(re, reErase, string(whole)))
 		} else {
 			in := make(chan string)
 			go readStdin(in)
@@ -67,38 +98,55 @@ func main() {
 				if ok == false {
 					break
 				} else {
-					fmt.Println(coloringText(re, reErase, l, options["B"]))
+					fmt.Println(kolor.coloringText(re, reErase, l))
 				}
 			}
 		}
 	} else {
 		// read from file or dir
-		if dirName != "" {
-			seekDir(&files, dirName, fileName, options["R"])
-		} else {
-			files = append(files, fileName)
+		if len(kolor.files) == 0 {
+			errMessage("files are not given.")
 		}
 		if isDebug {
 			log.Println("### read from file or dir in main")
-			log.Println("File Name: " + fileName)
-			log.Println("Files: " + strings.Join(files, ", "))
-			log.Println("Dir Name: " + dirName)
+			log.Println("File Name: " + kolor.fileName)
+			log.Println("Files: " + strings.Join(kolor.files, ", "))
+			log.Printf("Num of Files: %d\n", len(kolor.files))
+			log.Printf("Is Recursive: %t\n", kolor.isRecursive)
 		}
 
-		if options["s"] {
+		if kolor.asSingle {
 			var whole []byte
 
-			for i := 0; i < len(files); i++ {
-				whole, ioerr = ioutil.ReadFile(files[i])
+			for i := 0; i < len(kolor.files); i++ {
+				fi, err := os.Stat(kolor.files[i])
+				if err != nil {
+					errCheck(err)
+				}
+				if kolor.isRecursive && fi.IsDir() {
+					continue
+				}
+				whole, ioerr = ioutil.ReadFile(kolor.files[i])
 				errCheck(ioerr)
-				colored := coloringText(re, reErase, string(whole), options["B"])
+				colored := kolor.coloringText(re, reErase, string(whole))
 
-				printColored(colored, files, i)
+				kolor.printColored(colored, i)
 			}
 		} else {
-			for i := 0; i < len(files); i++ {
+			for i := 0; i < len(kolor.files); i++ {
+				fi, err := os.Stat(kolor.files[i])
+				if err != nil {
+					if isDebug {
+						log.Println(kolor.files[i])
+					}
+					errCheck(err)
+				}
+				if kolor.isRecursive && fi.IsDir() {
+					continue
+				}
 				var fp *os.File
-				fp, ioerr = os.Open(files[i])
+				fp, ioerr = os.Open(kolor.files[i])
+				log.Println(kolor.files[i])
 				errCheck(ioerr)
 				reader := bufio.NewReaderSize(fp, 4096)
 				for {
@@ -109,9 +157,9 @@ func main() {
 						break
 					}
 
-					colored := coloringText(re, reErase, string(line), options["B"])
-					if !options["grep"] || colored != string(line) {
-						printColored(colored, files, i)
+					colored := kolor.coloringText(re, reErase, string(line))
+					if !kolor.options["grep"] || colored != string(line) {
+						kolor.printColored(colored, i)
 					}
 				}
 				ioerr = fp.Close()
@@ -122,18 +170,18 @@ func main() {
 	os.Exit(0)
 }
 
-func printColored(colored string, files []string, i int) {
-	if len(files) == 1 {
-		fmt.Print(colored)
+func (kolor *kolor) printColored(colored string, i int) {
+	if len(kolor.files) == 1 {
+		fmt.Println(colored)
 	} else {
-		fmt.Print(addFileName(colored, files[i]))
+		fmt.Print(addFileName(colored, kolor.files[i]))
 	}
 }
 
-func seekDir(files *[]string, dirName string, fileName string, isRecursive bool) {
+func (kolor *kolor) seekDir(files *[]string, dirName string) {
 	if isDebug {
 		log.Println("### seekDir")
-		log.Println("File Name:" + fileName)
+		log.Println("File Name:" + kolor.fileName)
 		log.Println("Dir Name:" + dirName)
 	}
 	fileInfo, ioerr := ioutil.ReadDir(dirName)
@@ -141,36 +189,36 @@ func seekDir(files *[]string, dirName string, fileName string, isRecursive bool)
 	for i := 0; i < len(fileInfo); i++ {
 		fullName := filepath.Join(dirName, fileInfo[i].Name())
 		if fileInfo[i].IsDir() == false {
-			if fileName == "" || checkFileName(fullName, fileName) {
+			if kolor.fileName == "" || kolor.checkFileName(fullName) {
 				if isDebug {
 					log.Println("File Full Name: " + fullName)
 				}
 				*files = append(*files, fullName)
 			}
-		} else if isRecursive && fileInfo[i].Name()[0] != '.' {
+		} else if kolor.isRecursive && fileInfo[i].Name()[0] != '.' {
 			if isDebug {
 				log.Println("Seek Dir: " + filepath.Join(dirName, fileInfo[i].Name()))
 			}
-			seekDir(files, filepath.Join(dirName, fileInfo[i].Name()), fileName, true)
+			kolor.seekDir(files, filepath.Join(dirName, fileInfo[i].Name()))
 		}
 	}
 }
 
-func addFileName(content string, fileName string) string {
+func addFileName(content string, fn string) string {
 	var r = regexp.MustCompile("(?m)^(\\033\\[0m)?")
-	return r.ReplaceAllString(content, "$1"+fileName+":") + "\n"
+	return r.ReplaceAllString(content, fn+":"+"$1") + "\n"
 }
 
-func checkFileName(targetFile string, fileName string) bool {
-	pattern := fileName
-	pattern = strings.Replace(pattern, ".", "\\.", -1)
-	pattern = strings.Replace(pattern, "*", ".*", -1)
-	matched, err := regexp.MatchString("(^|/)"+pattern+"$", targetFile)
+func (kolor *kolor) checkFileName(targetFile string) bool {
+	kolor.pattern = kolor.fileName
+	kolor.pattern = strings.Replace(kolor.pattern, ".", "\\.", -1)
+	kolor.pattern = strings.Replace(kolor.pattern, "*", ".*", -1)
+	matched, err := regexp.MatchString("(^|/)"+kolor.pattern+"$", targetFile)
 	if isDebug {
 		log.Println("### checkFileName")
 		log.Println("Target File: " + targetFile)
-		log.Println("File Name: " + fileName)
-		log.Println("Pattern: " + pattern)
+		log.Println("File Name: " + kolor.fileName)
+		log.Println("Pattern: " + kolor.pattern)
 		log.Printf("Matched: %t\n", matched)
 	}
 	if err == nil && matched {
@@ -187,12 +235,10 @@ type optDef struct {
 	help     string
 }
 
-func parseOptions() (pattern string, files []string, fileName string, dirName string, erasePattern string, options map[string]bool) {
+func (kolor *kolor) parseOptions() {
 	replace := make([]string, 0)
 	regexpFlg := ""
-	options = make(map[string]bool)
 	regexpFlgs := make(map[byte]bool)
-	strOptions := make(map[string]string)
 	colorOptions := make([]string, 0)
 	colorHelp := make([]string, 0)
 	boolParsedOpt := make(map[string]*bool)
@@ -211,6 +257,7 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 
 	homedir, err := homedir.Dir()
 	if err != nil {
+		log.Println(11)
 		errCheck(err)
 	} else {
 		homedir += string(os.PathSeparator)
@@ -227,8 +274,8 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		"grep": optDef{isBool: true, boolDef: false, help: "take string and ignore not matched lines with it like grep"},
 		"s":    optDef{isBool: true, boolDef: false, help: "regexp option. tread given content as single line(default as multi line)"},
 		"i":    optDef{isBool: true, boolDef: false, help: "regexp option. do case insensitive pattern matching."},
-		"R":    optDef{isString: true, strDef: "", help: "recursively read given directory. using this option withaout -f, -f is set as '*.*'"},
-		"f":    optDef{isString: true, strDef: "-", help: "file_name/pattern ... read from file. read stdin if not give."},
+		"R":    optDef{isBool: true, boolDef: false, help: "recursively read directory."},
+		"f":    optDef{isString: true, strDef: "", help: "file pattern. read from matched file."},
 		"e":    optDef{isString: true, strDef: "", help: "erase matched string"},
 		"B":    optDef{isBool: true, boolDef: false, help: "matched string to be bold"},
 		"use":  optDef{isString: true, strDef: "", help: "use predefined setting from config file($HOME/.kolorit.toml)"},
@@ -247,31 +294,31 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 
 	// parse options
 	for k, v := range boolParsedOpt {
-		options[k] = *v
+		if v != nil {
+			kolor.options[k] = *v
+		}
 	}
 	for k, v := range strParsedOpt {
-		strOptions[k] = *v
+		if v != nil {
+			kolor.strOptions[k] = *v
+		}
 	}
 
-	isDebug = options["d"]
+	isDebug = kolor.options["d"]
+
+	kolor.erasePattern = kolor.strOptions["e"]
+	kolor.isRecursive = kolor.options["R"]
+	kolor.asSingle = kolor.options["s"]
 
 	// print usage and exit
-	if options["help"] || options["h"] {
-		flag.Usage()
-		os.Exit(1)
+	if kolor.options["help"] || kolor.options["h"] {
+		usage()
 	}
 
-	if strOptions["use"] != "" {
-		parseConfig(strOptions["conf"], strOptions["use"], colorMap, &regexps, &options)
+	// options from config file
+	if kolor.strOptions["use"] != "" {
+		kolor.parseConfig(kolor.strOptions["conf"], kolor.strOptions["use"], colorMap, &regexps)
 	}
-
-	if strOptions["R"] != "" {
-		options["R"] = true
-	}
-
-	fileName = strOptions["f"]
-	erasePattern = strOptions["e"]
-	dirName = strOptions["R"]
 
 	if isDebug {
 		log.Println("### parseOptions")
@@ -282,16 +329,36 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 		if isDebug {
 			log.Println("Add File: " + flag.Arg(n))
 		}
-		files = append(files, flag.Arg(n))
+		kolor.files = append(kolor.files, flag.Arg(n))
 	}
 
-	if len(files) != 0 && dirName != "" && fileName == "-" {
-		fileName = "*.*"
+	if kolor.strOptions["f"] != "" && kolor.strOptions["f"] != "-" {
+		kolor.fileName = kolor.strOptions["f"]
+	} else if len(kolor.files) == 0 && !kolor.isRecursive {
+		kolor.fromSTDIN = true
 	}
 
-	// buld regexp flags
+	// collect target files
+	if !kolor.fromSTDIN {
+		if len(kolor.files) == 0 && kolor.fileName != "" {
+			kolor.seekDir(&kolor.files, ".")
+		} else if kolor.isRecursive {
+			for _, f := range kolor.files {
+				fi, err := os.Stat(f)
+				errCheck(err)
+				if fi.IsDir() {
+					kolor.seekDir(&kolor.files, f)
+				}
+			}
+		}
+		if len(kolor.files) == 0 {
+			errMessage("files are not given/found")
+		}
+	}
+
+	// build regexp flags
 	for _, k := range []byte{'s', 'i'} {
-		regexpFlgs[k] = options[string(k)]
+		regexpFlgs[k] = kolor.options[string(k)]
 	}
 	if !regexpFlgs['s'] {
 		regexpFlgs['m'] = true
@@ -317,14 +384,13 @@ func parseOptions() (pattern string, files []string, fileName string, dirName st
 	}
 
 	// assemble regexps
-	pattern = regexpFlg + strings.Join(replace, "|")
+	kolor.pattern = regexpFlg + strings.Join(replace, "|")
 	if isDebug {
-		log.Println("regexp: " + pattern)
+		log.Println("regexp: " + kolor.pattern)
 	}
-	return
 }
 
-func parseConfig(configFile string, use string, colorMap map[byte]string, regexps *map[byte]*string, options *map[string]bool) {
+func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[byte]string, regexps *map[byte]*string) {
 	_, err := os.Stat(configFile)
 	if err != nil {
 		errMessage(configFile + " doesn't exist.")
@@ -332,6 +398,7 @@ func parseConfig(configFile string, use string, colorMap map[byte]string, regexp
 
 	config, err := toml.LoadFile(configFile)
 	if err != nil {
+		log.Println(configFile)
 		errCheck(err)
 	}
 	opt := config.Get(use)
@@ -352,20 +419,19 @@ func parseConfig(configFile string, use string, colorMap map[byte]string, regexp
 			}
 		}
 	}
-	boolOpts := make([]string, 0)
-	boolOpts = append(boolOpts, "B", "m", "i", "s")
+	boolOpts := []string{"B", "m", "i", "s"}
 	for _, k := range boolOpts {
 		boolOpt := opt.(*toml.TomlTree).Get(k)
 		switch boolOpt.(type) {
 		case nil:
 			continue
 		default:
-			(*options)[k] = boolOpt.(bool)
+			kolor.options[k] = boolOpt.(bool)
 		}
 	}
 }
 
-func coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string, withBold bool) string {
+func (kolor *kolor) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) string {
 	lines = reErase.ReplaceAllString(lines, "")
 	colorFunc := map[string]func(s kolorit.String) string{
 		"red":    func(s kolorit.String) string { return s.Red() },
@@ -404,7 +470,7 @@ func coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string, withB
 					var matchedIndex []int
 					matchedIndex = append(matchedIndex, result[k][i-1], result[k][i])
 					var color kolorit.String
-					color.WithBold(withBold)
+					color.WithBold(kolor.withBold)
 
 					if matchedIndex[1] > 0 {
 						color.Str = s[matchedIndex[0]:matchedIndex[1]]
