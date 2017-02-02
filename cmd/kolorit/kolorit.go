@@ -45,9 +45,14 @@ Options:
 	os.Exit(1)
 }
 
-func errCheck(e error) {
+func errCheck(e error, m ...string) {
 	if e != nil {
-		fmt.Println(e)
+		if len(m) > 0 && m[0] != "" {
+			fmt.Printf("%s\nmessage: ", m[0])
+			fmt.Println(e)
+		} else {
+			fmt.Println(e)
+		}
 		os.Exit(1)
 	}
 }
@@ -76,10 +81,10 @@ func main() {
 	kolor.parseOptions()
 
 	re, regexpErr := regexp.Compile(kolor.pattern)
-	errCheck(regexpErr)
+	errCheck(regexpErr, "wrong regexp: "+kolor.pattern)
 
 	reErase, eraseRegexpErr := regexp.Compile(kolor.erasePattern)
-	errCheck(eraseRegexpErr)
+	errCheck(eraseRegexpErr, "wrong regexp: "+kolor.erasePattern)
 
 	var ioerr error
 
@@ -87,7 +92,7 @@ func main() {
 		// read from STDIN
 		if kolor.asSingle {
 			whole, ioerr := ioutil.ReadAll(os.Stdin)
-			errCheck(ioerr)
+			errCheck(ioerr, "error on reading STDIN")
 			fmt.Println(kolor.coloringText(re, reErase, string(whole)))
 		} else {
 			in := make(chan string)
@@ -98,7 +103,10 @@ func main() {
 				if ok == false {
 					break
 				} else {
-					fmt.Println(kolor.coloringText(re, reErase, l))
+					colored := kolor.coloringText(re, reErase, l)
+					if !kolor.options["grep"] || colored != string(l) {
+						fmt.Println(colored)
+					}
 				}
 			}
 		}
@@ -121,15 +129,14 @@ func main() {
 			for i := 0; i < len(kolor.files); i++ {
 				fi, err := os.Stat(kolor.files[i])
 				if err != nil {
-					errCheck(err)
+					errCheck(err, "error on stat file: "+kolor.files[i])
 				}
 				if kolor.isRecursive && fi.IsDir() {
 					continue
 				}
 				whole, ioerr = ioutil.ReadFile(kolor.files[i])
-				errCheck(ioerr)
+				errCheck(ioerr, "error on reading file: "+kolor.files[i])
 				colored := kolor.coloringText(re, reErase, string(whole))
-
 				kolor.printColored(colored, i)
 			}
 		} else {
@@ -146,13 +153,12 @@ func main() {
 				}
 				var fp *os.File
 				fp, ioerr = os.Open(kolor.files[i])
-				log.Println(kolor.files[i])
 				errCheck(ioerr)
 				reader := bufio.NewReaderSize(fp, 4096)
 				for {
 					line, _, ioerr := reader.ReadLine()
 					if ioerr != io.EOF {
-						errCheck(ioerr)
+						errCheck(ioerr, "error on reading file: "+kolor.files[i])
 					} else if ioerr == io.EOF {
 						break
 					}
@@ -163,7 +169,7 @@ func main() {
 					}
 				}
 				ioerr = fp.Close()
-				errCheck(ioerr)
+				errCheck(ioerr, "error on closing file: "+kolor.files[i])
 			}
 		}
 	}
@@ -185,7 +191,7 @@ func (kolor *kolor) seekDir(files *[]string, dirName string) {
 		log.Println("Dir Name:" + dirName)
 	}
 	fileInfo, ioerr := ioutil.ReadDir(dirName)
-	errCheck(ioerr)
+	errCheck(ioerr, "error on reading dir: "+dirName)
 	for i := 0; i < len(fileInfo); i++ {
 		fullName := filepath.Join(dirName, fileInfo[i].Name())
 		if fileInfo[i].IsDir() == false {
@@ -258,7 +264,7 @@ func (kolor *kolor) parseOptions() {
 	homedir, err := homedir.Dir()
 	if err != nil {
 		log.Println(11)
-		errCheck(err)
+		errCheck(err, "error on getting HOME dir")
 	} else {
 		homedir += string(os.PathSeparator)
 	}
@@ -271,7 +277,7 @@ func (kolor *kolor) parseOptions() {
 		"help": optDef{isBool: true, boolDef: false, help: "show usage"},
 		"h":    optDef{isBool: true, boolDef: false, help: "show usage"},
 		"d":    optDef{isBool: true, boolDef: false, help: "debug mode"},
-		"grep": optDef{isBool: true, boolDef: false, help: "take string and ignore not matched lines with it like grep"},
+		"grep": optDef{isBool: true, boolDef: false, help: "take string and ignore not matched lines with it like grep. cannot use it with -s"},
 		"s":    optDef{isBool: true, boolDef: false, help: "regexp option. tread given content as single line(default as multi line)"},
 		"i":    optDef{isBool: true, boolDef: false, help: "regexp option. do case insensitive pattern matching."},
 		"R":    optDef{isBool: true, boolDef: false, help: "recursively read directory."},
@@ -306,9 +312,7 @@ func (kolor *kolor) parseOptions() {
 
 	isDebug = kolor.options["d"]
 
-	kolor.erasePattern = kolor.strOptions["e"]
 	kolor.isRecursive = kolor.options["R"]
-	kolor.asSingle = kolor.options["s"]
 
 	// print usage and exit
 	if kolor.options["help"] || kolor.options["h"] {
@@ -319,6 +323,9 @@ func (kolor *kolor) parseOptions() {
 	if kolor.strOptions["use"] != "" {
 		kolor.parseConfig(kolor.strOptions["conf"], kolor.strOptions["use"], colorMap, &regexps)
 	}
+
+	kolor.erasePattern = kolor.strOptions["e"]
+	kolor.asSingle = kolor.options["s"]
 
 	if isDebug {
 		log.Println("### parseOptions")
@@ -345,7 +352,7 @@ func (kolor *kolor) parseOptions() {
 		} else if kolor.isRecursive {
 			for _, f := range kolor.files {
 				fi, err := os.Stat(f)
-				errCheck(err)
+				errCheck(err, "error on stat file: "+f)
 				if fi.IsDir() {
 					kolor.seekDir(&kolor.files, f)
 				}
@@ -393,13 +400,12 @@ func (kolor *kolor) parseOptions() {
 func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[byte]string, regexps *map[byte]*string) {
 	_, err := os.Stat(configFile)
 	if err != nil {
-		errMessage(configFile + " doesn't exist.")
+		errCheck(err, "cannot find/read config file:"+configFile)
 	}
 
 	config, err := toml.LoadFile(configFile)
 	if err != nil {
-		log.Println(configFile)
-		errCheck(err)
+		errCheck(err, "cannot parse config file: "+configFile)
 	}
 	opt := config.Get(use)
 	switch opt.(type) {
@@ -407,15 +413,26 @@ func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[byte
 		errMessage("'" + use + "' is not defined in " + configFile)
 	}
 
+	optionKeys := make([]byte, 0)
 	for k := range colorMap {
+		optionKeys = append(optionKeys, k)
+	}
+	optionKeys = append(optionKeys, 'e')
+
+	for _, k := range optionKeys {
 		isRegexp := opt.(*toml.TomlTree).Get(string(k))
 		switch isRegexp.(type) {
 		case nil:
 			continue
 		default:
 			regexpStr := isRegexp.(string)
-			if regexpStr != "" {
-				(*regexps)[k] = &regexpStr
+			if k == 'e' {
+				kolor.strOptions[string(k)] = regexpStr
+			} else {
+				if *(*regexps)[k] == "" && regexpStr != "" {
+					(*regexps)[k] = &regexpStr
+				}
+
 			}
 		}
 	}
