@@ -58,11 +58,13 @@ and you can use it like:
 ```
 # Example
 
+```
 % rsync -avhn /tmp/a/ /tmp/b/ | kolorit -r '\w+' -p '\d+'
 % rsync -avhn /tmp/a/ /tmp/b/ | kolorit -s -g 'sending incremental file list(.+?)\nsent [\d.]+\w bytes'
 % rsync -avhn /tmp/a/ /tmp/b/ | kolorit -use rsync
 % godoc time |kolorit -r 'current|local' -y 'reference time' | less -R
 % godoc time |kolorit -B -r 'current|local' -y 'reference time' --grep 
+```
 
 # Author
 
