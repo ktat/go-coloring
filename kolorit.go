@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ktat/kolorit"
+	"github.com/ktat/go-ansistrings"
 	"github.com/mitchellh/go-homedir"
 	toml "github.com/pelletier/go-toml"
 )
@@ -22,13 +22,14 @@ var isDebug bool
 type kolor struct {
 	strOptions   map[string]string
 	options      map[string]bool
+	bg           map[string]int
 	pattern      string
 	erasePattern string
+	numOfRegexps int
 	files        []string
 	fileName     string
 	isRecursive  bool
 	fromSTDIN    bool
-	withBold     bool
 	asSingle     bool
 }
 
@@ -76,6 +77,7 @@ func main() {
 	kolor := kolor{
 		options:    make(map[string]bool),
 		strOptions: make(map[string]string),
+		bg:         make(map[string]int),
 		files:      make([]string, 0),
 	}
 	kolor.parseOptions()
@@ -93,7 +95,8 @@ func main() {
 		if kolor.asSingle {
 			whole, ioerr := ioutil.ReadAll(os.Stdin)
 			errCheck(ioerr, "error on reading STDIN")
-			fmt.Println(kolor.coloringText(re, reErase, string(whole)))
+			str, _ := kolor.coloringText(re, reErase, string(whole))
+			fmt.Println(str)
 		} else {
 			in := make(chan string)
 			go readStdin(in)
@@ -103,8 +106,10 @@ func main() {
 				if ok == false {
 					break
 				} else {
-					colored := kolor.coloringText(re, reErase, l)
-					if !kolor.options["grep"] || colored != string(l) {
+					colored, n := kolor.coloringText(re, reErase, l)
+					if kolor.options["grep"] && (kolor.options["or"] || n == kolor.numOfRegexps) && colored != string(l) {
+						fmt.Println(colored)
+					} else if !kolor.options["grep"] {
 						fmt.Println(colored)
 					}
 				}
@@ -136,7 +141,7 @@ func main() {
 				}
 				whole, ioerr = ioutil.ReadFile(kolor.files[i])
 				errCheck(ioerr, "error on reading file: "+kolor.files[i])
-				colored := kolor.coloringText(re, reErase, string(whole))
+				colored, _ := kolor.coloringText(re, reErase, string(whole))
 				kolor.printColored(colored, i)
 			}
 		} else {
@@ -163,8 +168,10 @@ func main() {
 						break
 					}
 
-					colored := kolor.coloringText(re, reErase, string(line))
-					if !kolor.options["grep"] || colored != string(line) {
+					colored, n := kolor.coloringText(re, reErase, string(line))
+					if kolor.options["grep"] && (kolor.options["or"] || n == kolor.numOfRegexps) && colored != string(line) {
+						kolor.printColored(colored, i)
+					} else if !kolor.options["grep"] {
 						kolor.printColored(colored, i)
 					}
 				}
@@ -249,16 +256,25 @@ func (kolor *kolor) parseOptions() {
 	colorHelp := make([]string, 0)
 	boolParsedOpt := make(map[string]*bool)
 	strParsedOpt := make(map[string]*string)
-	regexps := make(map[byte]*string)
-	colorMap := map[byte]string{
-		'r': "red",
-		'g': "green",
-		'b': "blue",
-		'y': "yellow",
-		'p': "purple",
-		'c': "cyan",
-		'k': "black",
-		'w': "white",
+	regexps := make(map[string]*string)
+	bgOptions := make(map[string]*string)
+	colorMap := map[string]string{
+		"r":   "red",
+		"g":   "green",
+		"b":   "blue",
+		"y":   "yellow",
+		"p":   "purple",
+		"c":   "cyan",
+		"k":   "black",
+		"w":   "white",
+		"lr":  "light_red",
+		"lg":  "light_green",
+		"lb":  "light_blue",
+		"ly":  "light_yellow",
+		"lp":  "light_purple",
+		"lc":  "light_cyan",
+		"dgr": "dark_gray",
+		"lgr": "light gray",
 	}
 
 	homedir, err := homedir.Dir()
@@ -270,7 +286,10 @@ func (kolor *kolor) parseOptions() {
 	}
 
 	for k := range colorMap {
-		regexps[k] = flag.String(string(k), "", "regexp to be "+colorMap[k])
+		regexps[k] = flag.String(k, "", "regexp to be "+colorMap[k])
+	}
+	for k := range colorMap {
+		bgOptions["b"+k] = flag.String("b"+k, "", "background color of "+colorMap[k])
 	}
 
 	opt := map[string]optDef{
@@ -284,8 +303,10 @@ func (kolor *kolor) parseOptions() {
 		"f":    optDef{isString: true, strDef: "", help: "file pattern. read from matched file."},
 		"e":    optDef{isString: true, strDef: "", help: "erase matched string"},
 		"B":    optDef{isBool: true, boolDef: false, help: "matched string to be bold"},
+		"I":    optDef{isBool: true, boolDef: false, help: "matched string background color to be inverted"},
 		"use":  optDef{isString: true, strDef: "", help: "use predefined setting from config file($HOME/.kolorit.toml)"},
 		"conf": optDef{isString: true, strDef: homedir + ".kolorit.toml", help: "path of config file"},
+		"or":   optDef{isBool: true, boolDef: false, help: "change grep option behavior. take string if any regexp is match."},
 	}
 
 	for k, v := range opt {
@@ -382,8 +403,16 @@ func (kolor *kolor) parseOptions() {
 		if *regexps[k] != "" {
 			replace = append(replace, fmt.Sprintf("(?P<%s>%s)", colorMap[k], *regexps[k]))
 			colorOptions = append(colorOptions, string(k))
+			kolor.numOfRegexps++
 		}
 		colorHelp = append(colorHelp, "-"+string(k))
+		v, ok := bgOptions["b"+k]
+		if ok && *v != "" {
+			kolor.bg[k], err = ansistrings.ColorNumFromName(*v)
+			if err != nil {
+				errCheck(err, "unknown color name: "+*v)
+			}
+		}
 	}
 
 	if len(replace) == 0 {
@@ -397,7 +426,7 @@ func (kolor *kolor) parseOptions() {
 	}
 }
 
-func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[byte]string, regexps *map[byte]*string) {
+func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[string]string, regexps *map[string]*string) {
 	_, err := os.Stat(configFile)
 	if err != nil {
 		errCheck(err, "cannot find/read config file:"+configFile)
@@ -413,11 +442,11 @@ func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[byte
 		errMessage("'" + use + "' is not defined in " + configFile)
 	}
 
-	optionKeys := make([]byte, 0)
+	optionKeys := make([]string, 0)
 	for k := range colorMap {
 		optionKeys = append(optionKeys, k)
 	}
-	optionKeys = append(optionKeys, 'e')
+	optionKeys = append(optionKeys, "e")
 
 	for _, k := range optionKeys {
 		isRegexp := opt.(*toml.TomlTree).Get(string(k))
@@ -426,7 +455,7 @@ func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[byte
 			continue
 		default:
 			regexpStr := isRegexp.(string)
-			if k == 'e' {
+			if k == "e" {
 				kolor.strOptions[string(k)] = regexpStr
 			} else {
 				if *(*regexps)[k] == "" && regexpStr != "" {
@@ -436,7 +465,7 @@ func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[byte
 			}
 		}
 	}
-	boolOpts := []string{"B", "m", "i", "s"}
+	boolOpts := []string{"B", "m", "i", "s", "I"}
 	for _, k := range boolOpts {
 		boolOpt := opt.(*toml.TomlTree).Get(k)
 		switch boolOpt.(type) {
@@ -448,19 +477,29 @@ func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[byte
 	}
 }
 
-func (kolor *kolor) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) string {
+func (kolor *kolor) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) (string, int) {
 	lines = reErase.ReplaceAllString(lines, "")
-	colorFunc := map[string]func(s kolorit.String) string{
-		"red":    func(s kolorit.String) string { return s.Red() },
-		"green":  func(s kolorit.String) string { return s.Green() },
-		"blue":   func(s kolorit.String) string { return s.Blue() },
-		"yellow": func(s kolorit.String) string { return s.Yellow() },
-		"white":  func(s kolorit.String) string { return s.White() },
-		"cyan":   func(s kolorit.String) string { return s.Cyan() },
-		"black":  func(s kolorit.String) string { return s.Black() },
-		"purple": func(s kolorit.String) string { return s.Magenta() },
+	colorFunc := map[string]func(s ansistrings.ANSIString) string{
+		"red":          func(s ansistrings.ANSIString) string { s.Red(); return s.String() },
+		"green":        func(s ansistrings.ANSIString) string { s.Green(); return s.String() },
+		"blue":         func(s ansistrings.ANSIString) string { s.Blue(); return s.String() },
+		"yellow":       func(s ansistrings.ANSIString) string { s.Yellow(); return s.String() },
+		"white":        func(s ansistrings.ANSIString) string { s.White(); return s.String() },
+		"cyan":         func(s ansistrings.ANSIString) string { s.Cyan(); return s.String() },
+		"black":        func(s ansistrings.ANSIString) string { s.Black(); return s.String() },
+		"purple":       func(s ansistrings.ANSIString) string { s.Magenta(); return s.String() },
+		"light_purple": func(s ansistrings.ANSIString) string { s.LightMagenta(); return s.String() },
+		"light_red":    func(s ansistrings.ANSIString) string { s.LightRed(); return s.String() },
+		"light_green":  func(s ansistrings.ANSIString) string { s.LightGreen(); return s.String() },
+		"light_blue":   func(s ansistrings.ANSIString) string { s.LightBlue(); return s.String() },
+		"light_yellow": func(s ansistrings.ANSIString) string { s.LightYellow(); return s.String() },
+		"light_cyan":   func(s ansistrings.ANSIString) string { s.LightCyan(); return s.String() },
+		"dark_gray":    func(s ansistrings.ANSIString) string { s.DarkGray(); return s.String() },
+		"light_gray":   func(s ansistrings.ANSIString) string { s.LightGray(); return s.String() },
 	}
 
+	machedKind := 0
+	machedName := make(map[string]int)
 	lines = re.ReplaceAllStringFunc(lines, func(s string) string {
 		result := make(map[string][]int)
 		match := re.FindAllStringSubmatchIndex(s, -1)
@@ -474,6 +513,10 @@ func (kolor *kolor) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, line
 			} else {
 				result[name] = append(result[name], match[0][i*2], match[0][i*2+1])
 				lastName = name
+				machedName[lastName]++
+				if machedName[lastName] == 1 {
+					machedKind++
+				}
 			}
 		}
 
@@ -486,8 +529,20 @@ func (kolor *kolor) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, line
 				if result[k][i] > 0 {
 					var matchedIndex []int
 					matchedIndex = append(matchedIndex, result[k][i-1], result[k][i])
-					var color kolorit.String
-					color.WithBold(kolor.withBold)
+					var color ansistrings.ANSIString
+					if kolor.options["B"] {
+						color.Bold()
+					}
+					if kolor.options["I"] {
+						color.Inverted()
+					}
+					if kolor.options["U"] {
+						color.UnderLine()
+					}
+					v, ok := kolor.bg[string(k[0])]
+					if ok {
+						color.BgColor(v)
+					}
 
 					if matchedIndex[1] > 0 {
 						color.Str = s[matchedIndex[0]:matchedIndex[1]]
@@ -505,5 +560,5 @@ func (kolor *kolor) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, line
 		}
 		return s
 	})
-	return string(lines)
+	return string(lines), machedKind
 }

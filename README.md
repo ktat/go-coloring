@@ -13,16 +13,39 @@ usage: kolorit [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
 
         -f file name pattern ... file pattern. read from matched file
         -R dir  ... recursively read directory
-        -r regexp ... to be red
-        -g regexp ... to be green
-        -b regexp ... to be blue
-        -y regexp ... to be yellow
-        -c regexp ... to be cyan
-        -p regexp ... to be purple
-        -w regexp ... to be white
-        -k regexp ... to be black
-        -e regexp ... erace matched string
+        -r   regexp ... to be red
+        -g   regexp ... to be green
+        -b   regexp ... to be blue
+        -y   regexp ... to be yellow
+        -c   regexp ... to be cyan
+        -p   regexp ... to be purple
+        -w   regexp ... to be white
+        -k   regexp ... to be black
+        -lb  regexp ... to be light_blue
+	-lc  regexp ... to be light_cyan
+	-lg  regexp ... to be light_green
+	-lgr regexp ... to be light gray
+	-lp  regexp ... to be light_purple
+	-lr  regexp ... to be light_red
+	-ly  regexp ... to be light_yellow
+        -e   regexp ... erace matched string
+        -br   color_name ... background color of red
+        -bg   color_name ... background color of green
+        -bb   color_name ... background color of blue
+        -by   color_name ... background color of yellow
+        -bc   color_name ... background color of cyan
+        -bp   color_name ... background color of purple
+        -bw   color_name ... background color of white
+        -bk   color_name ... background color of black
+        -blb  color_name ... background color of light_blue
+	-blc  color_name ... background color of light_cyan
+	-blg  color_name ... background color of light_green
+	-blgr color_name ... background color of light gray
+	-blp  color_name ... background color of light_purple
+	-blr  color_name ... background color of light_red
+	-bly  color_name ... background color of light_yellow
         -s ... regexp option. tread given content as single line(default as multi line)
+	-I ... set matched text background color inverted color
         -B ... matched text to be bold
         -m ... regexp for multiline
         -i ... regexp is case insensitive
@@ -32,6 +55,7 @@ usage: kolorit [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
         -use ... use predefined setting from config file($HOME/.koloit.toml)
         -conf ... path of config file (default "$HOME/.kolorit.toml")
         -grep ... take string and ignore not matched lines with it like grep. cannot use it with -s option
+        -or   ... change grep option behavior. take string if any regexp is match.
 ```
 # Config file
 
