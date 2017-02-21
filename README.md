@@ -55,7 +55,7 @@ usage: kolorit [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
         -use ... use predefined setting from config file($HOME/.koloit.toml)
         -conf ... path of config file (default "$HOME/.kolorit.toml")
         -grep ... take string and ignore not matched lines with it like grep. cannot use it with -s option
-        -or   ... change grep option behavior. take string if any regexp is match.
+        -and   ... change grep option behavior. take string only when all regexps are match.
 ```
 # Config file
 

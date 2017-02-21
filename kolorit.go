@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ktat/go-ansistrings"
 	"github.com/mitchellh/go-homedir"
@@ -95,7 +97,10 @@ func main() {
 		if kolor.asSingle {
 			whole, ioerr := ioutil.ReadAll(os.Stdin)
 			errCheck(ioerr, "error on reading STDIN")
-			str, _ := kolor.coloringText(re, reErase, string(whole))
+			str, _, e := kolor.coloringText(re, reErase, string(whole))
+			if e != nil {
+				errCheck(e)
+			}
 			fmt.Println(str)
 		} else {
 			in := make(chan string)
@@ -106,8 +111,11 @@ func main() {
 				if ok == false {
 					break
 				} else {
-					colored, n := kolor.coloringText(re, reErase, l)
-					if kolor.options["grep"] && (kolor.options["or"] || n == kolor.numOfRegexps) && colored != string(l) {
+					colored, n, e := kolor.coloringText(re, reErase, l)
+					if e != nil {
+						errCheck(e)
+					}
+					if kolor.options["grep"] && (!kolor.options["and"] || n == kolor.numOfRegexps) && colored != string(l) {
 						fmt.Println(colored)
 					} else if !kolor.options["grep"] {
 						fmt.Println(colored)
@@ -136,13 +144,18 @@ func main() {
 				if err != nil {
 					errCheck(err, "error on stat file: "+kolor.files[i])
 				}
-				if kolor.isRecursive && fi.IsDir() {
+				if fi.IsDir() {
 					continue
 				}
 				whole, ioerr = ioutil.ReadFile(kolor.files[i])
 				errCheck(ioerr, "error on reading file: "+kolor.files[i])
-				colored, _ := kolor.coloringText(re, reErase, string(whole))
+				colored, _, e := kolor.coloringText(re, reErase, string(whole))
+				if e != nil {
+					log.Println("binary file is given: " + kolor.files[i])
+					continue
+				}
 				kolor.printColored(colored, i)
+
 			}
 		} else {
 			for i := 0; i < len(kolor.files); i++ {
@@ -168,11 +181,16 @@ func main() {
 						break
 					}
 
-					colored, n := kolor.coloringText(re, reErase, string(line))
-					if kolor.options["grep"] && (kolor.options["or"] || n == kolor.numOfRegexps) && colored != string(line) {
+					colored, n, e := kolor.coloringText(re, reErase, string(line))
+					if e != nil {
+						log.Println("binary file: " + kolor.files[i])
+						break
+					}
+					if kolor.options["grep"] && (!kolor.options["and"] || n == kolor.numOfRegexps) && colored != string(line) {
 						kolor.printColored(colored, i)
 					} else if !kolor.options["grep"] {
 						kolor.printColored(colored, i)
+
 					}
 				}
 				ioerr = fp.Close()
@@ -202,19 +220,85 @@ func (kolor *kolor) seekDir(files *[]string, dirName string) {
 	for i := 0; i < len(fileInfo); i++ {
 		fullName := filepath.Join(dirName, fileInfo[i].Name())
 		if fileInfo[i].IsDir() == false {
-			if kolor.fileName == "" || kolor.checkFileName(fullName) {
+			if !kolor.isIgnoreFile(fileInfo[i].Name()) && (kolor.fileName == "" || kolor.checkFileName(fullName)) {
 				if isDebug {
 					log.Println("File Full Name: " + fullName)
 				}
 				*files = append(*files, fullName)
 			}
-		} else if kolor.isRecursive && fileInfo[i].Name()[0] != '.' {
+		} else if kolor.isRecursive && !kolor.isIgnoreDirs(fileInfo[i].Name()) {
 			if isDebug {
 				log.Println("Seek Dir: " + filepath.Join(dirName, fileInfo[i].Name()))
 			}
 			kolor.seekDir(files, filepath.Join(dirName, fileInfo[i].Name()))
 		}
 	}
+}
+
+func (kolor *kolor) isIgnoreFile(file string) (ignore bool) {
+	ignore, _ = regexp.MatchString("^(\\.#.+|.+~|#.*#)$", file)
+	if ignore {
+		return
+	}
+	if !kolor.options["vcs"] {
+		switch file {
+		case "=RELEASE-ID":
+			ignore = true
+		case "=meta-update":
+			ignore = true
+		case "=update":
+			ignore = true
+		case ".gitignore":
+			ignore = true
+		case ".gitmodules":
+			ignore = true
+		case ".gitattributes":
+			ignore = true
+		case ".cvsignore":
+			ignore = true
+		case ".bzr":
+			ignore = true
+		case ".bzrignore":
+			ignore = true
+		case ".bzrtags":
+			ignore = true
+		case ".hg":
+			ignore = true
+		case ".hgignore":
+			ignore = true
+		case ".hgrags":
+			ignore = true
+		case "_darcs":
+			ignore = true
+		}
+	}
+	return
+}
+
+func (kolor *kolor) isIgnoreDirs(dir string) (ignore bool) {
+	if !kolor.options["dot"] && len(dir) > 1 && dir[0] == '.' {
+		ignore = true
+	} else {
+		if !kolor.options["vcs"] {
+			switch dir {
+			case "CVS":
+				ignore = true
+			case ".svn":
+				ignore = true
+			case ".git":
+				ignore = true
+			case "RCS":
+				ignore = true
+			case "SCCS":
+				ignore = true
+			case ".arch-ids":
+				ignore = true
+			case "{arch}":
+				ignore = true
+			}
+		}
+	}
+	return
 }
 
 func addFileName(content string, fn string) string {
@@ -297,6 +381,7 @@ func (kolor *kolor) parseOptions() {
 		"h":    optDef{isBool: true, boolDef: false, help: "show usage"},
 		"d":    optDef{isBool: true, boolDef: false, help: "debug mode"},
 		"grep": optDef{isBool: true, boolDef: false, help: "take string and ignore not matched lines with it like grep. cannot use it with -s"},
+		//"ng":   optDef{isBool: true, boolDef: false, help: "ignore grep option"},
 		"s":    optDef{isBool: true, boolDef: false, help: "regexp option. tread given content as single line(default as multi line)"},
 		"i":    optDef{isBool: true, boolDef: false, help: "regexp option. do case insensitive pattern matching."},
 		"R":    optDef{isBool: true, boolDef: false, help: "recursively read directory."},
@@ -306,7 +391,9 @@ func (kolor *kolor) parseOptions() {
 		"I":    optDef{isBool: true, boolDef: false, help: "matched string background color to be inverted"},
 		"use":  optDef{isString: true, strDef: "", help: "use predefined setting from config file($HOME/.kolorit.toml)"},
 		"conf": optDef{isString: true, strDef: homedir + ".kolorit.toml", help: "path of config file"},
-		"or":   optDef{isBool: true, boolDef: false, help: "change grep option behavior. take string if any regexp is match."},
+		"and":  optDef{isBool: true, boolDef: false, help: "change grep option behavior. take string only when all regexps are matched."},
+		"dot":  optDef{isBool: true, boolDef: false, help: "dot includes files starts with '.'"},
+		"vcs":  optDef{isBool: true, boolDef: false, help: "vcs include vcs files/dirs"},
 	}
 
 	for k, v := range opt {
@@ -436,6 +523,9 @@ func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[stri
 	if err != nil {
 		errCheck(err, "cannot parse config file: "+configFile)
 	}
+	//if use == "default" {
+	//	errMessage("cannot pass 'default' as 'use' argument")
+	//}
 	opt := config.Get(use)
 	switch opt.(type) {
 	case nil:
@@ -446,7 +536,7 @@ func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[stri
 	for k := range colorMap {
 		optionKeys = append(optionKeys, k)
 	}
-	optionKeys = append(optionKeys, "e")
+	optionKeys = append(optionKeys, "e") // "ng"
 
 	for _, k := range optionKeys {
 		isRegexp := opt.(*toml.TomlTree).Get(string(k))
@@ -477,7 +567,14 @@ func (kolor *kolor) parseConfig(configFile string, use string, colorMap map[stri
 	}
 }
 
-func (kolor *kolor) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) (string, int) {
+func (kolor *kolor) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) (string, int, error) {
+	for i := 0; i < len(lines); i++ {
+		if utf8.ValidString(lines) == false {
+			return "", 0, errors.New("binary string is given")
+
+		}
+	}
+
 	lines = reErase.ReplaceAllString(lines, "")
 	colorFunc := map[string]func(s ansistrings.ANSIString) string{
 		"red":          func(s ansistrings.ANSIString) string { s.Red(); return s.String() },
@@ -560,5 +657,5 @@ func (kolor *kolor) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, line
 		}
 		return s
 	})
-	return string(lines), machedKind
+	return string(lines), machedKind, nil
 }
