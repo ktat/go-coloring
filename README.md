@@ -6,59 +6,86 @@ coloring text with regexp
 
 ![](https://raw.githubusercontent.com/ktat/kolorit/master/kolorit.gif)
 
-# USAGE
+# Usage
 
 ```
-usage: kolorit [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
+  kolorit [options] [FILES]
+  kolorit [options] -f "*.go"
+  kolorit [options] -R [FILES/DIRECTORIES]
+```
 
-        -f file name pattern ... file pattern. read from matched file
-        -R dir  ... recursively read directory
-        -r   regexp ... to be red
-        -g   regexp ... to be green
-        -b   regexp ... to be blue
-        -y   regexp ... to be yellow
-        -c   regexp ... to be cyan
-        -p   regexp ... to be purple
-        -w   regexp ... to be white
-        -k   regexp ... to be black
-        -lb  regexp ... to be light_blue
-        -lc  regexp ... to be light_cyan
-        -lg  regexp ... to be light_green
-        -lgr regexp ... to be light gray
-        -lp  regexp ... to be light_purple
-        -lr  regexp ... to be light_red
-        -ly  regexp ... to be light_yellow
-        -e   regexp ... erace matched string
-        -br   color_name ... background color of red
-        -bg   color_name ... background color of green
-        -bb   color_name ... background color of blue
-        -by   color_name ... background color of yellow
-        -bc   color_name ... background color of cyan
-        -bp   color_name ... background color of purple
-        -bw   color_name ... background color of white
-        -bk   color_name ... background color of black
-        -blb  color_name ... background color of light_blue
-        -blc  color_name ... background color of light_cyan
-        -blg  color_name ... background color of light_green
-        -blgr color_name ... background color of light gray
-        -blp  color_name ... background color of light_purple
-        -blr  color_name ... background color of light_red
-        -bly  color_name ... background color of light_yellow
-        -s ... regexp option. tread given content as single line(default as multi line)
-        -I ... set matched text background color inverted color
-        -nI ... ignore -I option
-        -B ... matched text to be bold
-        -nB ... ignore -B option
-        -m ... regexp for multiline
-        -i ... regexp is case insensitive
-        -d ... print debug message
-        -h ... help
-        -help ... help
-        -use ... use predefined setting from config file($HOME/.koloit.toml)
-        -conf ... path of config file (default "$HOME/.kolorit.toml")
-        -grep ... take string and ignore not matched lines with it like grep. cannot use it with -s option
-        -ngrep ... ignore grep option.
-        -and  ... change grep option behavior. take string only when all regexps are match.
+# Options
+```
+  -help
+        show usage
+  -h    show usage
+  -conf string
+        path of config file
+  -use string
+        use predefined setting from config file($HOME/.kolorit.toml)
+  -grep
+        take string and ignore not matched lines with it like grep. cannot use it with -s
+  -and
+        change grep option behavior. take string only when all regexps are matched.
+  -ngrep
+        ignore grep option
+  -s    regexp option. treat given content as single line(default as multi line)
+  -i    regexp option. do case insensitive pattern matching.
+  -R    recursively read directory.
+  -f string
+        file pattern. read from matched file.
+  -e string
+        erase matched string
+  -B    matched string to be bold
+  -nB
+        ignore -B option
+  -I    matched string background color to be inverted
+  -nI
+        ignore -I option
+  -dot
+        dot includes files starts with '.'
+  -vcs
+        vcs includes vcs files/dirs
+  -d    debug mode
+```
+# Color Options:
+```
+  -r regexp     to be red
+  -g regexp     to be green
+  -b regexp     to be blue
+  -y regexp     to be yellow
+  -p regexp     to be purple
+  -c regexp     to be cyan
+  -k regexp     to be black
+  -w regexp     to be white
+  -lr regexp    to be light_red
+  -lg regexp    to be light_green
+  -lb regexp    to be light_blue
+  -ly regexp    to be light_yellow
+  -lp regexp    to be light_purple
+  -lc regexp    to be light_cyan
+  -dgr regexp   to be dark_gray
+  -lgr regexp   to be light gray
+```
+# Back Ground Color Options:
+* color_name is name of color explained the above
+```
+  -br color_name        background color of red
+  -bg color_name        background color of green
+  -bb color_name        background color of blue
+  -by color_name        background color of yellow
+  -bp color_name        background color of purple
+  -bc color_name        background color of cyan
+  -bk color_name        background color of black
+  -bw color_name        background color of white
+  -blr color_name       background color of light_red
+  -blg color_name       background color of light_green
+  -blb color_name       background color of light_blue
+  -bly color_name       background color of light_yellow
+  -blp color_name       background color of light_purple
+  -blc color_name       background color of light_cyan
+  -bdgr color_name      background color of dark_gray
+  -blgr color_name      background color of light gray
 ```
 # Config file
 
