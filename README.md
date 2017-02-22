@@ -46,7 +46,9 @@ usage: kolorit [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
         -bly  color_name ... background color of light_yellow
         -s ... regexp option. tread given content as single line(default as multi line)
         -I ... set matched text background color inverted color
+        -nI ... ignore -I option
         -B ... matched text to be bold
+        -nB ... ignore -B option
         -m ... regexp for multiline
         -i ... regexp is case insensitive
         -d ... print debug message
@@ -55,12 +57,17 @@ usage: kolorit [-f file|-[rgbycpwk] regexp|-f pattern|-R dir|-h]  [file ..]
         -use ... use predefined setting from config file($HOME/.koloit.toml)
         -conf ... path of config file (default "$HOME/.kolorit.toml")
         -grep ... take string and ignore not matched lines with it like grep. cannot use it with -s option
-        -and   ... change grep option behavior. take string only when all regexps are match.
+        -ngrep ... ignore grep option.
+        -and  ... change grep option behavior. take string only when all regexps are match.
 ```
 # Config file
 
-You can predefine color regexp, B, s, m, i and e options in config file($HOME/.kolorit.toml) like the following
+You can predefine color regexp, B, s, m, i, e, grep and ng options in config file($HOME/.kolorit.toml) like the following
 ```
+[default]
+# specify default kolorit behabior
+B = true
+
 [calc]
 y = '[=?.<>\-+*/]+'
 b = '\d+'
