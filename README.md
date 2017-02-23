@@ -89,10 +89,10 @@ coloring text with regexp
 ```
 # Config file
 
-You can predefine color regexp, B, s, m, i, e, grep and ng options in config file($HOME/.kolorit.toml) like the following
+You can predefine color regexp, B, s, m, i, e, grep and ngrep options in config file($HOME/.kolorit.toml) like the following
 ```
 [default]
-# specify default kolorit behabior
+# specify default kolorit options
 B = true
 
 [calc]

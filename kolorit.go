@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -45,10 +46,16 @@ type optDef struct {
 	help     string
 }
 
+type colorName struct {
+	s string
+	l string
+}
+
 var opt []optDef
 var homeDir string
-var colorMap map[string]string
-var colors []string
+var colorArray []colorName
+var colorMap = make(map[string]string)
+var colorNames []string
 
 func init() {
 	var err error
@@ -81,25 +88,29 @@ func init() {
 		optDef{k: "d", isBool: true, boolDef: false, help: "debug mode"},
 	}
 
-	colorMap = map[string]string{
-		"r":   "red",
-		"g":   "green",
-		"b":   "blue",
-		"y":   "yellow",
-		"p":   "purple",
-		"c":   "cyan",
-		"k":   "black",
-		"w":   "white",
-		"lr":  "light_red",
-		"lg":  "light_green",
-		"lb":  "light_blue",
-		"ly":  "light_yellow",
-		"lp":  "light_purple",
-		"lc":  "light_cyan",
-		"dgr": "dark_gray",
-		"lgr": "light gray",
+	colorArray = []colorName{
+		colorName{s: "r", l: "red"},
+		colorName{s: "g", l: "green"},
+		colorName{s: "b", l: "blue"},
+		colorName{s: "y", l: "yellow"},
+		colorName{s: "p", l: "purple"},
+		colorName{s: "c", l: "cyan"},
+		colorName{s: "k", l: "black"},
+		colorName{s: "w", l: "white"},
+		colorName{s: "lr", l: "light_red"},
+		colorName{s: "lg", l: "light_green"},
+		colorName{s: "lb", l: "light_blue"},
+		colorName{s: "ly", l: "light_yellow"},
+		colorName{s: "lp", l: "light_purple"},
+		colorName{s: "lc", l: "light_cyan"},
+		colorName{s: "dgr", l: "dark_gray"},
+		colorName{s: "lgr", l: "light gray"},
 	}
-	colors = []string{"r", "g", "b", "y", "p", "c", "k", "w", "lr", "lg", "lb", "ly", "lp", "lc", "dgr", "lgr"}
+
+	for _, v := range colorArray {
+		colorNames = append(colorNames, v.s)
+		colorMap[v.s] = v.l
+	}
 }
 
 func usage() {
@@ -125,11 +136,11 @@ Options:
 		}
 	}
 	fmt.Print("\nColor Options:\n\n")
-	for _, k := range colors {
+	for _, k := range colorNames {
 		fmt.Printf("  -%s regexp\t%s\n", k, "to be "+colorMap[k])
 	}
-	fmt.Print("\nBack Ground Color Options:\n  * color_name is name of color explained the above\n\n")
-	for _, k := range colors {
+	fmt.Print("\nBack Ground Color Options:\n  * color_name is name of color like 'black', 'red', 'light_blue' etc.\n\n")
+	for _, k := range colorNames {
 		fmt.Printf("  -b%s color_name\t%s\n", k, "background color of "+colorMap[k])
 	}
 
@@ -242,7 +253,7 @@ func main() {
 					log.Println(e.Error() + " : " + kolorit.files[i])
 					continue
 				}
-				kolorit.printColored(colored, i)
+				kolorit.printColored(colored, i, 0)
 
 			}
 		} else {
@@ -261,7 +272,9 @@ func main() {
 				fp, ioerr = os.Open(kolorit.files[i])
 				errCheck(ioerr)
 				reader := bufio.NewReaderSize(fp, 4096)
+				lineNumber := 0
 				for {
+					lineNumber++
 					line, _, ioerr := reader.ReadLine()
 					if ioerr != io.EOF {
 						errCheck(ioerr, "error on reading file: "+kolorit.files[i])
@@ -275,9 +288,9 @@ func main() {
 						break
 					}
 					if kolorit.options["grep"] && (!kolorit.options["and"] || n == kolorit.numOfRegexps) && colored != string(line) {
-						kolorit.printColored(colored, i)
+						kolorit.printColored(colored, i, lineNumber)
 					} else if !kolorit.options["grep"] {
-						kolorit.printColored(colored, i)
+						kolorit.printColored(colored, i, lineNumber)
 
 					}
 				}
@@ -289,11 +302,17 @@ func main() {
 	os.Exit(0)
 }
 
-func (kolorit *kolorit) printColored(colored string, i int) {
-	if len(kolorit.files) == 1 {
+func (kolorit *kolorit) printColored(colored string, i int, ln int) {
+	if len(kolorit.files) == 0 {
 		fmt.Println(colored)
+	} else if len(kolorit.files) == 1 {
+		if ln == 0 {
+			fmt.Println(colored)
+		} else {
+			fmt.Println(addLineNum(colored, ln))
+		}
 	} else {
-		fmt.Print(addFileName(colored, kolorit.files[i]))
+		fmt.Print(addFileName(colored, kolorit.files[i], ln))
 	}
 }
 
@@ -388,11 +407,23 @@ func (kolorit *kolorit) isIgnoreDirs(dir string) (ignore bool) {
 	return
 }
 
-func addFileName(content string, fn string) string {
+func addFileName(content string, fn string, ln int) string {
 	var r = regexp.MustCompile("(?m)^(\\033\\[0m)?")
 	a := ansistrings.NewANSIStrings()
-	prefix := a.Str(fn).Magenta().Str(":").Cyan().String()
+	prefix := ""
+	if ln == 0 {
+		prefix = a.Str(fn).Magenta().Str(":").Cyan().String()
+	} else {
+		prefix = a.Str(fn).Magenta().Str(":").Cyan().Str(strconv.Itoa(ln)).Yellow().Str(":").Cyan().String()
+	}
 	return r.ReplaceAllString(content, prefix+"$1") + "\n"
+}
+
+func addLineNum(content string, ln int) string {
+	var r = regexp.MustCompile("(?m)^(\\033\\[0m)?")
+	a := ansistrings.NewANSIStrings()
+	prefix := a.Str(strconv.Itoa(ln)).Yellow().Str(":").Cyan().String()
+	return r.ReplaceAllString(content, prefix+"$1")
 }
 
 func (kolorit *kolorit) checkFileName(targetFile string) bool {
@@ -628,23 +659,14 @@ func (kolorit *kolorit) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, 
 	}
 
 	lines = reErase.ReplaceAllString(lines, "")
-	colorFunc := map[string]func(s ansistrings.ANSIString) string{
-		"red":          func(s ansistrings.ANSIString) string { s.Red(); return s.String() },
-		"green":        func(s ansistrings.ANSIString) string { s.Green(); return s.String() },
-		"blue":         func(s ansistrings.ANSIString) string { s.Blue(); return s.String() },
-		"yellow":       func(s ansistrings.ANSIString) string { s.Yellow(); return s.String() },
-		"white":        func(s ansistrings.ANSIString) string { s.White(); return s.String() },
-		"cyan":         func(s ansistrings.ANSIString) string { s.Cyan(); return s.String() },
-		"black":        func(s ansistrings.ANSIString) string { s.Black(); return s.String() },
-		"purple":       func(s ansistrings.ANSIString) string { s.Magenta(); return s.String() },
-		"light_purple": func(s ansistrings.ANSIString) string { s.LightMagenta(); return s.String() },
-		"light_red":    func(s ansistrings.ANSIString) string { s.LightRed(); return s.String() },
-		"light_green":  func(s ansistrings.ANSIString) string { s.LightGreen(); return s.String() },
-		"light_blue":   func(s ansistrings.ANSIString) string { s.LightBlue(); return s.String() },
-		"light_yellow": func(s ansistrings.ANSIString) string { s.LightYellow(); return s.String() },
-		"light_cyan":   func(s ansistrings.ANSIString) string { s.LightCyan(); return s.String() },
-		"dark_gray":    func(s ansistrings.ANSIString) string { s.DarkGray(); return s.String() },
-		"light_gray":   func(s ansistrings.ANSIString) string { s.LightGray(); return s.String() },
+	colorFunc := make(map[string]func(s ansistrings.ANSIString) string)
+	for _, colorName := range colorNames {
+		name := colorMap[colorName]
+		n, _ := ansistrings.ColorNumFromName(name)
+		colorFunc[name] = func(s ansistrings.ANSIString) string {
+			s.Color(n)
+			return s.String()
+		}
 	}
 
 	machedKind := 0
@@ -669,7 +691,8 @@ func (kolorit *kolorit) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, 
 			}
 		}
 
-		for k := range colorFunc {
+		for _, colorName := range colorNames {
+			k := colorMap[colorName]
 			newStr := ""
 			if len(result[k]) > 2 { // if parenthese exists in regexp, ignore first match which matches whole string
 				result[k] = result[k][2:]
@@ -688,7 +711,7 @@ func (kolorit *kolorit) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, 
 					if kolorit.options["U"] {
 						color.UnderLine()
 					}
-					v, ok := kolorit.bg[string(k[0])]
+					v, ok := kolorit.bg[colorName]
 					if ok {
 						color.BgColor(v)
 					}
