@@ -53,6 +53,8 @@ type colorName struct {
 
 var opt []optDef
 var homeDir string
+var homeDirRegexp *regexp.Regexp
+var resetRegexp = regexp.MustCompile("(?m)^(\\033\\[0m)?")
 var colorArray []colorName
 var colorMap = make(map[string]string)
 var colorNames []string
@@ -65,6 +67,7 @@ func init() {
 	} else {
 		homeDir += string(os.PathSeparator)
 	}
+	homeDirRegexp = regexp.MustCompile(fmt.Sprintf("^%s", homeDir))
 
 	opt = []optDef{
 		optDef{k: "help", isBool: true, boolDef: false, help: "show usage"},
@@ -85,6 +88,8 @@ func init() {
 		optDef{k: "nI", isBool: true, boolDef: false, help: "ignore -I option"},
 		optDef{k: "dot", isBool: true, boolDef: false, help: "dot includes files starts with '.'"},
 		optDef{k: "vcs", isBool: true, boolDef: false, help: "vcs includes vcs files/dirs"},
+		optDef{k: "ext", isBool: true, boolDef: false, help: "ext includes predefined extensions to ignore(images,movies,audios etc.)"},
+		optDef{k: "force", isBool: true, boolDef: false, help: "forcely read file even if file has not utf-8 string"},
 		optDef{k: "d", isBool: true, boolDef: false, help: "debug mode"},
 	}
 
@@ -241,13 +246,17 @@ func main() {
 			for i := 0; i < len(kolorit.files); i++ {
 				fi, err := os.Stat(kolorit.files[i])
 				if err != nil {
-					errCheck(err, "error on stat file: "+kolorit.files[i])
+					log.Println(err.Error() + ":error on stat file: " + kolorit.files[i])
+					continue
 				}
 				if fi.IsDir() {
 					continue
 				}
 				whole, ioerr = ioutil.ReadFile(kolorit.files[i])
-				errCheck(ioerr, "error on reading file: "+kolorit.files[i])
+				if ioerr != nil {
+					log.Println(ioerr.Error() + ":error on reading file: " + kolorit.files[i])
+					continue
+				}
 				colored, _, e := kolorit.coloringText(re, reErase, string(whole))
 				if e != nil {
 					log.Println(e.Error() + " : " + kolorit.files[i])
@@ -263,21 +272,25 @@ func main() {
 					if isDebug {
 						log.Println(err.Error() + " : " + kolorit.files[i])
 					}
-					errCheck(err)
+					continue
 				}
 				if kolorit.isRecursive && fi.IsDir() {
 					continue
 				}
 				var fp *os.File
 				fp, ioerr = os.Open(kolorit.files[i])
-				errCheck(ioerr)
+				if ioerr != nil {
+					log.Println(ioerr.Error() + " :cannot open file: " + kolorit.files[i])
+					continue
+				}
 				reader := bufio.NewReaderSize(fp, 4096)
 				lineNumber := 0
 				for {
 					lineNumber++
 					line, _, ioerr := reader.ReadLine()
-					if ioerr != io.EOF {
-						errCheck(ioerr, "error on reading file: "+kolorit.files[i])
+					if ioerr != nil && ioerr != io.EOF {
+						log.Println(ioerr.Error() + " :error on reading file content: " + kolorit.files[i])
+						break
 					} else if ioerr == io.EOF {
 						break
 					}
@@ -323,21 +336,24 @@ func (kolorit *kolorit) seekDir(files *[]string, dirName string) {
 		log.Println("Dir Name:" + dirName)
 	}
 	fileInfo, ioerr := ioutil.ReadDir(dirName)
-	errCheck(ioerr, "error on reading dir: "+dirName)
-	for i := 0; i < len(fileInfo); i++ {
-		fullName := filepath.Join(dirName, fileInfo[i].Name())
-		if fileInfo[i].IsDir() == false {
-			if !kolorit.isIgnoreFile(fileInfo[i].Name()) && (kolorit.fileName == "" || kolorit.checkFileName(fullName)) {
-				if isDebug {
-					log.Println("File Full Name: " + fullName)
+	if ioerr != nil {
+		log.Println(ioerr.Error() + " :error on reading dir: " + dirName)
+	} else {
+		for i := 0; i < len(fileInfo); i++ {
+			fullName := filepath.Join(dirName, fileInfo[i].Name())
+			if fileInfo[i].IsDir() == false {
+				if !kolorit.isIgnoreFile(fileInfo[i].Name()) && (kolorit.fileName == "" || kolorit.checkFileName(fullName)) {
+					if isDebug {
+						log.Println("File Full Name: " + fullName)
+					}
+					*files = append(*files, fullName)
 				}
-				*files = append(*files, fullName)
+			} else if kolorit.isRecursive && !kolorit.isIgnoreDirs(fileInfo[i].Name()) {
+				if isDebug {
+					log.Println("Seek Dir: " + filepath.Join(dirName, fileInfo[i].Name()))
+				}
+				kolorit.seekDir(files, filepath.Join(dirName, fileInfo[i].Name()))
 			}
-		} else if kolorit.isRecursive && !kolorit.isIgnoreDirs(fileInfo[i].Name()) {
-			if isDebug {
-				log.Println("Seek Dir: " + filepath.Join(dirName, fileInfo[i].Name()))
-			}
-			kolorit.seekDir(files, filepath.Join(dirName, fileInfo[i].Name()))
 		}
 	}
 }
@@ -379,6 +395,29 @@ func (kolorit *kolorit) isIgnoreFile(file string) (ignore bool) {
 			ignore = true
 		}
 	}
+	if !kolorit.options["ext"] {
+		// https://en.wikipedia.org/wiki/Image_file_formats#Raster_formats
+		ignore, _ = regexp.MatchString("(?i)\\.(jpe?g|png|gif|bmp|raw2?|tiff?|p[pgbn]|hei[fc]|bpg|webp|ico|psd|xcf|svg|swf|pdf|ai|cgm|gbr)", file)
+		if ignore {
+			return
+		}
+		// https://en.wikipedia.org/wiki/Video_file_format
+		ignore, _ = regexp.MatchString("(?i)\\.(webm|flv|vob|ogv|ogg|drc|gifv|mng|avi|mov|qt|wmv|yuv|rm|rmvb|asf|amv|mp4|m4[pv]|mp[g2v]|mpeg?|svi|3g[2p]|mxf|roq|nsv|f[l4]v|f4[pab])$", file)
+		if ignore {
+			return
+		}
+		// https://en.wikipedia.org/wiki/Audio_file_format
+		ignore, _ = regexp.MatchString("(?i)\\.(3gp|aa[cx]?|act|aiff|amr|ape|au|awb|dct|dss|dvf|flac?|gsm|iklax|m4[abp]|mmf|mp[3c]|msv|m?og[ga]|opus|r[am]|raw|sln|tta|vox|wav|wma|wv|webm)$", file)
+		if ignore {
+			return
+		}
+
+		//https://en.wikipedia.org/wiki/List_of_archive_formats
+		ignore, _ = regexp.MatchString("(?i)\\.(ar?|cpio|shar|lbr|iso|mar|tar|bz2|gz|lz(?:ma|o)?|rz|sfark|sz|xz|z|s?7z|ace|afa|alz|apk|arc|arj|b[1ah]|ca[br]|cfs|cpt|dar|dd|dgc|dmg|ear|gca|ha|hki|ice|jar|kgb|lz[ha]|pak|partimg|pag|pea|pim|pit|qda|rar|rk|sda|sea|sen|sfx|shk|si|sitx|sqx|uc\\d?|uca|uha|war|wim|xar|xp3|yz1|zipx?|zoo|zpaq|zz)$", file)
+		if ignore {
+			return
+		}
+	}
 	return
 }
 
@@ -408,7 +447,9 @@ func (kolorit *kolorit) isIgnoreDirs(dir string) (ignore bool) {
 }
 
 func addFileName(content string, fn string, ln int) string {
-	var r = regexp.MustCompile("(?m)^(\\033\\[0m)?")
+
+	fn = homeDirRegexp.ReplaceAllString(fn, "~/")
+
 	a := ansistrings.NewANSIStrings()
 	prefix := ""
 	if ln == 0 {
@@ -416,14 +457,13 @@ func addFileName(content string, fn string, ln int) string {
 	} else {
 		prefix = a.Str(fn).Magenta().Str(":").Cyan().Str(strconv.Itoa(ln)).Yellow().Str(":").Cyan().String()
 	}
-	return r.ReplaceAllString(content, prefix+"$1") + "\n"
+	return resetRegexp.ReplaceAllString(content, prefix+"$1") + "\n"
 }
 
 func addLineNum(content string, ln int) string {
-	var r = regexp.MustCompile("(?m)^(\\033\\[0m)?")
 	a := ansistrings.NewANSIStrings()
 	prefix := a.Str(strconv.Itoa(ln)).Yellow().Str(":").Cyan().String()
-	return r.ReplaceAllString(content, prefix+"$1")
+	return resetRegexp.ReplaceAllString(content, prefix+"$1")
 }
 
 func (kolorit *kolorit) checkFileName(targetFile string) bool {
@@ -652,9 +692,8 @@ func (kolorit *kolorit) parseConfig(configFile string, use string, colorMap map[
 
 func (kolorit *kolorit) coloringText(re *regexp.Regexp, reErase *regexp.Regexp, lines string) (string, int, error) {
 	for i := 0; i < len(lines); i++ {
-		if utf8.ValidString(lines) == false {
+		if utf8.ValidString(lines) == false && !kolorit.options["force"] {
 			return "", 0, errors.New("binary string or not utf-8 character is given")
-
 		}
 	}
 
